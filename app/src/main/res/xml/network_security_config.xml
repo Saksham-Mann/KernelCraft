@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 1. Enforce strict TLS: Cleartext HTTP traffic is globally forbidden -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- Trust only official system CA certificates to prevent rogue/user-installed CA MITM -->
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- 2. SSL/TLS Public-Key Pinning for Production Endpoints -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">kernelcraft.com</domain>
+        <domain includeSubdomains="true">api.kernelcraft.com</domain>
+        <pin-set expiration="2028-12-31">
+            <!-- Primary production certificate public key SHA-256 pin -->
+            <pin digest="SHA-256">47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=</pin>
+            <!-- Backup certificate public key SHA-256 pin -->
+            <pin digest="SHA-256">k2/oNdHQ3ZChCQKqCsoGWDNiTwElUVsCTX7hlTFLIwU=</pin>
+        </pin-set>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
