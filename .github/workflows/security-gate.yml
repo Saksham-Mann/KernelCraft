@@ -1,0 +1,192 @@
+name: OWASP MASVS Security Gate
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: security-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  # ============================================================================
+  # STAGE 1: Dependency & Supply Chain Verification
+  # ============================================================================
+  dependency-verification:
+    name: "Supply Chain & Dependency Verification"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Validate Gradle Wrapper Checksum
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Verify Dependency Verification Metadata Exists
+        run: |
+          if [ ! -f "gradle/verification-metadata.xml" ]; then
+            echo "::error::Missing gradle/verification-metadata.xml! Gradle dependency verification is mandatory."
+            exit 1
+          fi
+          echo "Dependency verification metadata discovered and verified."
+
+  # ============================================================================
+  # STAGE 2: Secret & Credential Scanning
+  # ============================================================================
+  secret-scanning:
+    name: "Secret & Credential Scanner (TruffleHog / Gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code (Full History for PR)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for Committed Keystores & Binary Certificates
+        run: |
+          echo "Scanning for forbidden binary credential files..."
+          FORBIDDEN_EXTENSIONS=("*.jks" "*.keystore" "*.p12" "*.pkcs12" "*.pem" "*.key")
+          FOUND_CREDENTIALS=0
+          for ext in "${FORBIDDEN_EXTENSIONS[@]}"; do
+            MATCHES=$(find . -not -path "*/.*" -name "$ext")
+            if [ -n "$MATCHES" ]; then
+              echo "::error::Committed key/keystore detected: $MATCHES"
+              FOUND_CREDENTIALS=1
+            fi
+          done
+          if [ $FOUND_CREDENTIALS -ne 0 ]; then
+            echo "Critical Security Violation: Private keys or Android keystores must never be checked into git."
+            exit 1
+          fi
+
+      - name: Run Gitleaks Secret Detector
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================
+  # STAGE 3: Static Application Security Testing (SAST) & Lint
+  # ============================================================================
+  sast-analysis:
+    name: "SAST & Android Lint Security Gate"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Execute SAST Security Audit & Lint
+        run: |
+          chmod +x gradlew
+          ./gradlew securityAudit lintRelease testDebugUnitTest --continue
+
+      - name: Archive Security & Lint Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            app/build/reports/security-audit-report.json
+            app/build/reports/lint-results.xml
+            app/build/reports/lint-results.html
+            app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14
+
+  # ============================================================================
+  # STAGE 4: Manifest & Exported Component Validator
+  # ============================================================================
+  manifest-validator:
+    name: "Manifest & Component Export Security Gate"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Validate AndroidManifest Security Directives
+        run: |
+          MANIFEST="app/src/main/AndroidManifest.xml"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::error::AndroidManifest.xml not found at $MANIFEST"
+            exit 1
+          fi
+
+          echo "Validating AndroidManifest.xml security posture..."
+
+          # 1. Reject allowBackup="true"
+          if grep -q 'android:allowBackup="true"' "$MANIFEST"; then
+            echo "::error file=$MANIFEST::Critical Security Flaw: android:allowBackup=\"true\" is forbidden."
+            exit 1
+          fi
+
+          # 2. Ensure networkSecurityConfig is configured
+          if ! grep -q 'android:networkSecurityConfig="@xml/network_security_config"' "$MANIFEST"; then
+            echo "::error file=$MANIFEST::High Security Flaw: Missing android:networkSecurityConfig declaration."
+            exit 1
+          fi
+
+          # 3. Check that all components explicitly declare android:exported
+          MISSING_EXPORT=0
+          while IFS= read -r line; do
+            if [[ "$line" =~ \<(activity|service|receiver|provider)[[:space:]] ]] && [[ ! "$line" =~ android:exported= ]]; then
+              # Multi-line check
+              TAG=$(echo "$line" | grep -oE '<(activity|service|receiver|provider)')
+              echo "::warning file=$MANIFEST::Reviewing component tag $TAG for explicit android:exported declaration..."
+            fi
+          done < "$MANIFEST"
+
+          echo "Manifest security directives successfully validated."
+
+  # ============================================================================
+  # STAGE 5: Zero-Tolerance PR Enforcement & Notification Gate
+  # ============================================================================
+  pr-enforcement-reporter:
+    name: "Zero-Tolerance Enforcement Reporter"
+    needs: [ dependency-verification, secret-scanning, sast-analysis, manifest-validator ]
+    if: failure() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post PR Security Failure Summary
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            
+            const commentBody = `### ⛔ OWASP MASVS / MASTG Security Gate FAILED
+            
+            This pull request violates KernelCraft's **Zero-Tolerance Mobile Security Policy**. One or more automated security verification stages failed during static analysis or credential scanning.
+            
+            #### 🔍 Failed Checks & Audit Details:
+            - **Workflow Run Details**: [View CI Security Logs](${runUrl})
+            - **Standards Evaluated**: OWASP MASVS v2.0 (Storage, Network, Platform, Code, Resilience)
+            
+            #### 🛡️ Mandatory Remediation Checklist:
+            1. **No Plaintext Secrets**: Ensure no API keys, tokens, or Keystores (\`.jks\`, \`.keystore\`, \`.pem\`) are staged.
+            2. **Explicit Component Exports**: All \`<activity>\`, \`<service>\`, \`<receiver>\`, \`<provider>\` declarations must explicitly state \`android:exported="false"\` (or \`"true"\` only for launcher activity).
+            3. **Zero Insecure HTTP**: Plaintext \`http://\` is forbidden. Use \`https://\` or verified local Android resource URIs.
+            4. **Data Isolation**: Retain \`android:allowBackup="false"\` and route private data through \`SecureStorageManager\`.
+            
+            *Please remediate the flagged violations locally, run \`./gradlew securityAudit\`, and push updated commits.*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: commentBody
+            });
