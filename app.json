@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "KernelCraft",
+    "slug": "kernelcraft",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#DD5622",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kernelcraft"
+    },
+    "android": {
+      "package": "com.kernelcraft",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#DD5622"
+      },
+      "permissions": [
+        "VIBRATE"
+      ]
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "scheme": "kernelcraft"
+  }
+}
