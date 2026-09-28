@@ -1,8 +1,7 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { Colors } from '../theme/colors';
 import { Typography } from '../theme/typography';
-import { Shapes } from '../theme/shapes';
 import { TeardownMilestone, TeardownAnnotation } from '../data/teardownData';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -11,9 +10,9 @@ interface MilestoneCardProps {
   selectedAnnotation: TeardownAnnotation | null;
   progress: number;
   onClearSelectedAnnotation: () => void;
-  onOpenDetailScreen: (componentId: string) => void;
+  onSelectAnnotation: (ann: TeardownAnnotation) => void;
+  allAnnotations: TeardownAnnotation[];
   onDiveIn: () => void;
-  onOpenSpecs: () => void;
 }
 
 export const MilestoneCard: React.FC<MilestoneCardProps> = ({
@@ -21,29 +20,83 @@ export const MilestoneCard: React.FC<MilestoneCardProps> = ({
   selectedAnnotation,
   progress,
   onClearSelectedAnnotation,
-  onOpenDetailScreen,
+  onSelectAnnotation,
+  allAnnotations,
   onDiveIn,
-  onOpenSpecs,
 }) => {
-  const showDiveInCta = progress >= 0.88;
+  const isFrontScreenReady = progress >= 0.88;
+
+  // Pulse animation for Dive In button
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const glowAnim = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    if (isFrontScreenReady) {
+      Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(pulseAnim, {
+              toValue: 1.05,
+              duration: 900,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pulseAnim, {
+              toValue: 1,
+              duration: 900,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.sequence([
+            Animated.timing(glowAnim, {
+              toValue: 1,
+              duration: 900,
+              useNativeDriver: true,
+            }),
+            Animated.timing(glowAnim, {
+              toValue: 0.4,
+              duration: 900,
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
+      ).start();
+    }
+  }, [isFrontScreenReady]);
+
+  // Current visible annotations based on progress
+  const visibleAnnotations = allAnnotations.filter(
+    (a) => progress >= a.startProgress && progress <= a.endProgress
+  );
 
   return (
     <View style={styles.sheetContainer}>
-      {/* Peek Drag Handle */}
       <View style={styles.dragHandleBar} />
 
       {selectedAnnotation ? (
-        // Component Telemetry Expansion View
+        // Selected Component Card (Simple, Kid-Friendly Explanation)
         <View style={styles.contentContainer}>
           <View style={styles.headerRow}>
-            <View>
-              <View style={styles.badgeRow}>
-                <View style={styles.categoryBadge}>
-                  <Text style={styles.categoryBadgeText}>{selectedAnnotation.category}</Text>
-                </View>
-                <Text style={styles.tagText}>{selectedAnnotation.tag}</Text>
+            <View style={styles.titleWithIcon}>
+              <View
+                style={[
+                  styles.componentIconCircle,
+                  { backgroundColor: selectedAnnotation.accentColor },
+                ]}
+              >
+                <Ionicons
+                  name={selectedAnnotation.icon as any}
+                  size={20}
+                  color={Colors.textWhite}
+                />
               </View>
-              <Text style={styles.titleText}>{selectedAnnotation.name}</Text>
+              <View style={styles.headerTitles}>
+                <View style={styles.tagBadge}>
+                  <Text style={[styles.tagBadgeText, { color: selectedAnnotation.accentColor }]}>
+                    {selectedAnnotation.tag.toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={styles.kidTitle}>{selectedAnnotation.telemetry.simpleTitle}</Text>
+              </View>
             </View>
 
             <TouchableOpacity
@@ -55,85 +108,98 @@ export const MilestoneCard: React.FC<MilestoneCardProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Quick Specs Grid */}
-          <View style={styles.specGrid}>
-            <View style={styles.specItem}>
-              <Text style={styles.specLabel}>Architecture</Text>
-              <Text style={styles.specValue} numberOfLines={2}>
-                {selectedAnnotation.telemetry.architecture}
-              </Text>
-            </View>
-
-            <View style={styles.specItem}>
-              <Text style={styles.specLabel}>Bus Interface</Text>
-              <Text style={styles.specValue} numberOfLines={1}>
-                {selectedAnnotation.telemetry.busInterface}
-              </Text>
-            </View>
-
-            <View style={styles.specItem}>
-              <Text style={styles.specLabel}>Power / Thermal</Text>
-              <Text style={styles.specValue} numberOfLines={1}>
-                {selectedAnnotation.telemetry.powerDraw} • {selectedAnnotation.telemetry.thermalEnvelope}
-              </Text>
-            </View>
+          {/* Simple Explanation */}
+          <View
+            style={[
+              styles.quoteBox,
+              { borderLeftColor: selectedAnnotation.accentColor },
+            ]}
+          >
+            <Text style={styles.simpleExplanation}>
+              "{selectedAnnotation.telemetry.simpleExplanation}"
+            </Text>
           </View>
 
-          {/* Detail CTA Row */}
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={styles.deepDiveButton}
-              onPress={() => onOpenDetailScreen(selectedAnnotation.id)}
-            >
-              <Text style={styles.deepDiveButtonText}>COMPONENT DEEP DIVE</Text>
-              <Ionicons name="arrow-forward" size={16} color={Colors.textWhite} />
-            </TouchableOpacity>
+          {/* Fun Detail & Metaphor */}
+          <Text style={styles.funDetail}>{selectedAnnotation.telemetry.funDetail}</Text>
+
+          <View style={styles.funStatsRow}>
+            <View style={styles.funStatChip}>
+              <Ionicons name="sparkles" size={13} color={selectedAnnotation.accentColor} />
+              <Text style={styles.funStatText}>{selectedAnnotation.telemetry.kidMetaphor}</Text>
+            </View>
+            <View style={styles.funStatChip}>
+              <Ionicons name="flash-outline" size={13} color={selectedAnnotation.accentColor} />
+              <Text style={styles.funStatText}>{selectedAnnotation.telemetry.powerOrSpeed}</Text>
+            </View>
           </View>
         </View>
       ) : (
-        // Standard Chapter Milestone View
+        // Milestone Story View (No engineering jargon, no Phase 4/4, no Specs button)
         <View style={styles.contentContainer}>
-          <View style={styles.headerRow}>
-            <View style={styles.badgeRow}>
-              <View style={styles.milestoneBadge}>
-                <Text style={styles.milestoneBadgeText}>{milestone.accentTag}</Text>
-              </View>
-              <Text style={styles.chapterCounter}>
-                PHASE {milestone.id === 'assembled' ? '1' : milestone.id === 'back_cover_removed' ? '2' : milestone.id === 'exploded_layers' ? '3' : '4'} / 4
-              </Text>
+          <View style={styles.milestoneHeader}>
+            <View style={styles.milestoneBadge}>
+              <Text style={styles.milestoneEmoji}>{milestone.emoji}</Text>
+              <Text style={styles.milestoneBadgeText}>{milestone.accentTag}</Text>
             </View>
 
-            <TouchableOpacity
-              style={styles.specsIconButton}
-              onPress={onOpenSpecs}
-              accessibilityLabel="Open Full Specs Matrix"
-            >
-              <Ionicons name="document-text-outline" size={18} color={Colors.ink} />
-              <Text style={styles.specsIconText}>SPECS</Text>
-            </TouchableOpacity>
+            <View style={styles.scrollTip}>
+              <Ionicons name="swap-vertical" size={14} color={Colors.studioOrange} />
+              <Text style={styles.scrollTipText}>Scroll up/down to explore</Text>
+            </View>
           </View>
 
-          <Text style={styles.titleText}>{milestone.title}</Text>
-          <Text style={styles.descriptionText}>{milestone.description}</Text>
+          <Text style={styles.milestoneTitle}>{milestone.title}</Text>
+          <Text style={styles.milestoneDesc}>{milestone.description}</Text>
 
-          {/* Dive-In Button (revealed at >= 88% exploded) */}
-          {showDiveInCta ? (
-            <TouchableOpacity style={styles.diveInCta} onPress={onDiveIn} activeOpacity={0.88}>
-              <View style={styles.diveInTextContainer}>
-                <Text style={styles.diveInTitle}>DIVE INTO SILICON DIE</Text>
-                <Text style={styles.diveInSubtitle}>Enter 4nm SoC Microarchitecture & Kernel Stack</Text>
+          {/* Kid-Friendly Component Quick-Picker when components are visible */}
+          {visibleAnnotations.length > 0 && !isFrontScreenReady && (
+            <View style={styles.quickPartsContainer}>
+              <Text style={styles.quickPartsLabel}>Tap any part to see what it does:</Text>
+              <View style={styles.quickPartsRow}>
+                {visibleAnnotations.map((ann) => (
+                  <TouchableOpacity
+                    key={ann.id}
+                    style={[styles.quickPartButton, { borderColor: ann.accentColor }]}
+                    onPress={() => onSelectAnnotation(ann)}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons name={ann.icon as any} size={14} color={ann.accentColor} />
+                    <Text style={styles.quickPartName}>{ann.name}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-              <View style={styles.diveInIconCircle}>
-                <Ionicons name="scan-outline" size={24} color={Colors.textWhite} />
-              </View>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.scrollTipRow}>
-              <Ionicons name="swap-vertical" size={16} color={Colors.inkMuted} />
-              <Text style={styles.scrollTipText}>
-                Scrub forward to disassemble down to the silicon processor die
-              </Text>
             </View>
+          )}
+
+          {/* "Dive In: Explore the OS" CTA when user reaches fully assembled front screen */}
+          {isFrontScreenReady && (
+            <Animated.View
+              style={[
+                styles.diveInCtaWrap,
+                {
+                  transform: [{ scale: pulseAnim }],
+                  shadowOpacity: glowAnim,
+                },
+              ]}
+            >
+              <TouchableOpacity
+                style={styles.diveInCtaButton}
+                onPress={onDiveIn}
+                activeOpacity={0.88}
+                accessibilityLabel="Dive In: Explore the OS"
+              >
+                <View style={styles.diveInTextCol}>
+                  <Text style={styles.diveInTitle}>Dive In: Explore the OS</Text>
+                  <Text style={styles.diveInSubtitle}>
+                    Zoom through the glass screen into the computer brain!
+                  </Text>
+                </View>
+                <View style={styles.diveInIconCircle}>
+                  <Ionicons name="arrow-forward" size={22} color="#FFFFFF" />
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
           )}
         </View>
       )}
@@ -143,25 +209,25 @@ export const MilestoneCard: React.FC<MilestoneCardProps> = ({
 
 const styles = StyleSheet.create({
   sheetContainer: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingTop: 12,
-    paddingBottom: 24,
-    paddingHorizontal: 20,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 10,
+    paddingBottom: 20,
+    paddingHorizontal: 18,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 10,
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    elevation: 12,
   },
   dragHandleBar: {
-    width: 44,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#E0E0E0',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D1D5DB',
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   contentContainer: {
     gap: 8,
@@ -171,165 +237,206 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  badgeRow: {
+  titleWithIcon: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    flex: 1,
   },
-  categoryBadge: {
-    backgroundColor: Colors.studioOrange,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+  componentIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  categoryBadgeText: {
+  headerTitles: {
+    flex: 1,
+  },
+  tagBadge: {
+    alignSelf: 'flex-start',
+  },
+  tagBadgeText: {
     ...Typography.tag,
-    color: Colors.textWhite,
-    fontSize: 10,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
-  milestoneBadge: {
-    backgroundColor: Colors.badgeDark,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  milestoneBadgeText: {
-    ...Typography.tag,
-    color: Colors.textWhite,
-    fontSize: 10,
-  },
-  tagText: {
-    ...Typography.bodySmall,
-    color: Colors.inkMuted,
-    fontWeight: '600',
-  },
-  chapterCounter: {
-    ...Typography.bodySmall,
-    color: Colors.inkMuted,
-    fontWeight: '700',
-    fontSize: 11,
-  },
-  titleText: {
+  kidTitle: {
     ...Typography.headline,
+    fontSize: 17,
     color: Colors.ink,
-    marginTop: 2,
-  },
-  descriptionText: {
-    ...Typography.body,
-    color: Colors.inkMuted,
-    marginTop: 2,
+    fontWeight: '800',
   },
   closeButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  specsIconButton: {
+  quoteBox: {
+    backgroundColor: '#F9FAFB',
+    borderLeftWidth: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginTop: 2,
+  },
+  simpleExplanation: {
+    ...Typography.body,
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  funDetail: {
+    ...Typography.bodySmall,
+    color: '#4B5563',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  funStatsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: '#F2F2F7',
-  },
-  specsIconText: {
-    ...Typography.tag,
-    color: Colors.ink,
-    fontSize: 10,
-  },
-  specGrid: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 16,
-    padding: 12,
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 4,
   },
-  specItem: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#EDEDED',
-    paddingBottom: 6,
-  },
-  specLabel: {
-    ...Typography.tag,
-    color: Colors.inkMuted,
-    fontSize: 9,
-    marginBottom: 2,
-  },
-  specValue: {
-    ...Typography.bodySmall,
-    color: Colors.ink,
-    fontWeight: '600',
-  },
-  actionRow: {
-    marginTop: 6,
-  },
-  deepDiveButton: {
-    backgroundColor: Colors.badgeDark,
+  funStatChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 14,
-  },
-  deepDiveButtonText: {
-    ...Typography.tag,
-    color: Colors.textWhite,
-    fontSize: 12,
-  },
-  diveInCta: {
-    backgroundColor: Colors.studioOrange,
+    gap: 5,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 20,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
+  },
+  funStatText: {
+    ...Typography.tag,
+    color: '#374151',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  milestoneHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
-    shadowColor: Colors.studioOrange,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 6,
   },
-  diveInTextContainer: {
-    flex: 1,
-  },
-  diveInTitle: {
-    ...Typography.subhead,
-    color: Colors.textWhite,
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  diveInSubtitle: {
-    ...Typography.bodySmall,
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  diveInIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 12,
-  },
-  scrollTipRow: {
+  milestoneBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingTop: 8,
+    backgroundColor: '#FFF4EE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
+  },
+  milestoneEmoji: {
+    fontSize: 14,
+  },
+  milestoneBadgeText: {
+    ...Typography.tag,
+    color: Colors.studioOrange,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  scrollTip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   scrollTipText: {
+    ...Typography.tag,
+    color: Colors.studioOrange,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  milestoneTitle: {
+    ...Typography.headline,
+    color: Colors.ink,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  milestoneDesc: {
+    ...Typography.body,
+    color: '#4B5563',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  quickPartsContainer: {
+    marginTop: 4,
+    gap: 6,
+  },
+  quickPartsLabel: {
+    ...Typography.tag,
+    color: '#6B7280',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  quickPartsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  quickPartButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    backgroundColor: '#F9FAFB',
+  },
+  quickPartName: {
+    ...Typography.tag,
+    color: '#1F2937',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  diveInCtaWrap: {
+    marginTop: 10,
+    borderRadius: 18,
+    shadowColor: Colors.studioOrange,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  diveInCtaButton: {
+    backgroundColor: Colors.studioOrange,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  diveInTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  diveInTitle: {
+    ...Typography.headline,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  diveInSubtitle: {
     ...Typography.bodySmall,
-    color: Colors.inkMuted,
-    fontSize: 12,
-    fontStyle: 'italic',
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  diveInIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
   },
 });

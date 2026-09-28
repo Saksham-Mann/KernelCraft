@@ -34,7 +34,7 @@ export default function ComponentDetailScreen() {
           </TouchableOpacity>
 
           <View style={styles.headerTitleCenter}>
-            <View style={styles.categoryBadge}>
+            <View style={[styles.categoryBadge, { backgroundColor: component.accentColor }]}>
               <Text style={styles.categoryBadgeText}>{component.category}</Text>
             </View>
           </View>
@@ -45,95 +45,61 @@ export default function ComponentDetailScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {/* Main Title Card */}
           <View style={styles.titleCard}>
-            <Text style={styles.titleText}>{component.name}</Text>
-            <Text style={styles.tagText}>{component.tag}</Text>
+            <Text style={styles.titleText}>{component.telemetry.technicalName}</Text>
+            <Text style={[styles.tagText, { color: component.accentColor }]}>
+              {component.telemetry.subtitle}
+            </Text>
 
-            <View style={styles.anchorBadgeRow}>
-              <Text style={styles.anchorBadgeText}>
-                Spatial Anchor: X={Math.round(component.anchorX * 100)}% Y={Math.round(component.anchorY * 100)}%
-              </Text>
+            <View style={styles.summaryBox}>
+              <Text style={styles.summaryText}>{component.telemetry.summary}</Text>
             </View>
           </View>
 
-          {/* Component Diagram / Architectural Highlight */}
+          {/* Component Diagram / Visual Card */}
           <View style={styles.visualCard}>
             <View style={styles.visualHeader}>
-              <Ionicons name="hardware-chip-outline" size={18} color={Colors.studioOrange} />
-              <Text style={styles.visualTitle}>HARDWARE BLUEPRINT</Text>
+              <Ionicons name={component.icon as any} size={20} color={component.accentColor} />
+              <Text style={styles.visualTitle}>HARDWARE ARCHITECTURE</Text>
             </View>
             <View style={styles.visualBox}>
               <Ionicons
-                name={
-                  component.category === 'SILICON'
-                    ? 'hardware-chip'
-                    : component.category === 'OPTICS'
-                    ? 'camera'
-                    : component.category === 'POWER'
-                    ? 'battery-charging'
-                    : 'thermometer'
-                }
-                size={54}
-                color={Colors.studioOrange}
+                name={component.icon as any}
+                size={64}
+                color={component.accentColor}
               />
-              <Text style={styles.blueprintLabel}>{component.telemetry.architecture}</Text>
+              <Text style={styles.archDetailText}>{component.telemetry.architecture}</Text>
             </View>
           </View>
 
-          {/* Engineering Specifications Grid */}
+          {/* Technical Specifications Grid */}
           <View style={styles.specsCard}>
             <Text style={styles.sectionHeader}>TECHNICAL SPECIFICATIONS</Text>
 
             <View style={styles.specRow}>
-              <Text style={styles.specKey}>Material & Packaging</Text>
-              <Text style={styles.specVal}>{component.telemetry.material}</Text>
+              <Text style={styles.specKey}>Architecture</Text>
+              <Text style={styles.specVal}>{component.telemetry.architecture}</Text>
             </View>
 
             <View style={styles.specRow}>
               <Text style={styles.specKey}>Bus & Interface</Text>
-              <Text style={styles.specVal}>{component.telemetry.busInterface}</Text>
+              <Text style={styles.specVal}>{component.telemetry.interfaceSpec}</Text>
             </View>
 
             <View style={styles.specRow}>
-              <Text style={styles.specKey}>Power Draw</Text>
-              <Text style={styles.specVal}>{component.telemetry.powerDraw}</Text>
+              <Text style={styles.specKey}>Key Features</Text>
+              {component.telemetry.keyFeatures.map((feat, i) => (
+                <View key={i} style={styles.featureBulletRow}>
+                  <Ionicons name="checkmark-circle" size={14} color={component.accentColor} />
+                  <Text style={styles.featureBulletText}>{feat}</Text>
+                </View>
+              ))}
             </View>
-
-            <View style={styles.specRow}>
-              <Text style={styles.specKey}>Operating Frequency</Text>
-              <Text style={styles.specVal}>{component.telemetry.operatingFreq}</Text>
-            </View>
-
-            <View style={styles.specRow}>
-              <Text style={styles.specKey}>Thermal Envelope</Text>
-              <Text style={styles.specVal}>{component.telemetry.thermalEnvelope}</Text>
-            </View>
-          </View>
-
-          {/* Engineering Field Notes */}
-          <View style={styles.notesCard}>
-            <View style={styles.notesHeader}>
-              <Ionicons name="build-outline" size={16} color={Colors.mustard} />
-              <Text style={styles.notesTitle}>ENGINEERING FIELD NOTES</Text>
-            </View>
-            <Text style={styles.notesContent}>{component.telemetry.engineeringNotes}</Text>
           </View>
 
           {/* Primary Action Button */}
-          {component.id === 'soc_processor' ? (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => {
-                router.push('/transition');
-              }}
-            >
-              <Text style={styles.actionButtonText}>DIVE INTO SILICON DIE & OS STACK</Text>
-              <Ionicons name="arrow-forward" size={18} color={Colors.textWhite} />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => router.back()}>
-              <Text style={styles.secondaryButtonText}>RETURN TO TEARDOWN</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => router.back()}>
+            <Text style={styles.secondaryButtonText}>RETURN TO TEARDOWN</Text>
+          </TouchableOpacity>
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -159,9 +125,9 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -170,164 +136,144 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   categoryBadge: {
-    backgroundColor: Colors.studioOrange,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   categoryBadgeText: {
     ...Typography.tag,
     color: Colors.textWhite,
     fontSize: 10,
+    fontWeight: '800',
   },
   scrollContent: {
-    padding: 16,
-    gap: 14,
+    padding: 18,
+    gap: 16,
     paddingBottom: 40,
   },
   titleCard: {
     backgroundColor: '#161622',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 6,
   },
   titleText: {
     ...Typography.headline,
     color: Colors.textWhite,
-    fontSize: 22,
+    fontSize: 20,
+    fontWeight: '800',
   },
   tagText: {
-    ...Typography.subhead,
-    color: Colors.studioOrange,
-    fontSize: 14,
-    marginTop: 4,
+    ...Typography.bodySmall,
+    fontWeight: '700',
+    fontSize: 13,
   },
-  anchorBadgeRow: {
-    marginTop: 10,
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+  summaryBox: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.studioOrange,
   },
-  anchorBadgeText: {
-    ...Typography.tag,
-    color: Colors.inkLight,
-    fontSize: 9,
+  summaryText: {
+    ...Typography.body,
+    color: '#FFFFFF',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '500',
   },
   visualCard: {
     backgroundColor: '#161622',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 12,
   },
   visualHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 12,
+    gap: 8,
   },
   visualTitle: {
-    ...Typography.tag,
-    color: Colors.inkLight,
-    fontSize: 10,
+    ...Typography.subhead,
+    color: Colors.textWhite,
+    fontSize: 13,
+    letterSpacing: 0.5,
   },
   visualBox: {
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    borderRadius: 12,
-    padding: 18,
+    backgroundColor: '#0D0D14',
+    borderRadius: 14,
+    padding: 20,
     alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    gap: 14,
   },
-  blueprintLabel: {
-    ...Typography.bodySmall,
-    color: Colors.textWhite,
+  archDetailText: {
+    ...Typography.body,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 13,
+    lineHeight: 19,
     textAlign: 'center',
     fontWeight: '600',
   },
   specsCard: {
     backgroundColor: '#161622',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    gap: 10,
+    gap: 12,
   },
   sectionHeader: {
     ...Typography.tag,
     color: Colors.inkLight,
     fontSize: 10,
-    marginBottom: 4,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   specRow: {
+    flexDirection: 'column',
+    gap: 4,
+    paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
-    paddingBottom: 8,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   specKey: {
     ...Typography.tag,
-    color: Colors.inkLight,
-    fontSize: 9,
-    marginBottom: 2,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 10,
   },
   specVal: {
     ...Typography.bodySmall,
     color: Colors.textWhite,
     fontSize: 13,
+    fontWeight: '600',
   },
-  notesCard: {
-    backgroundColor: 'rgba(232, 160, 32, 0.08)',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(232, 160, 32, 0.25)',
-  },
-  notesHeader: {
+  featureBulletRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 8,
+    marginTop: 3,
   },
-  notesTitle: {
-    ...Typography.tag,
-    color: Colors.mustard,
-    fontSize: 10,
-  },
-  notesContent: {
-    ...Typography.body,
-    color: Colors.textWhite,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  actionButton: {
-    backgroundColor: Colors.studioOrange,
-    borderRadius: 16,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 8,
-  },
-  actionButtonText: {
-    ...Typography.tag,
-    color: Colors.textWhite,
+  featureBulletText: {
+    ...Typography.bodySmall,
+    color: 'rgba(255, 255, 255, 0.85)',
     fontSize: 12,
   },
   secondaryButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: 'center',
-    marginTop: 8,
   },
   secondaryButtonText: {
     ...Typography.tag,
     color: Colors.textWhite,
     fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

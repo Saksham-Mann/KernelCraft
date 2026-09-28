@@ -18,51 +18,50 @@ export default function SiliconZoomTransitionScreen() {
   const router = useRouter();
   const zoomAnim = useRef(new Animated.Value(1)).current;
   const opacityAnim = useRef(new Animated.Value(1)).current;
-  const dieOpacityAnim = useRef(new Animated.Value(0)).current;
-  const [zoomStage, setZoomStage] = useState('ENTERING MACRO OPTICS');
+  const screenGlowAnim = useRef(new Animated.Value(0)).current;
+  const [zoomStage, setZoomStage] = useState('APPROACHING FRONT DISPLAY');
 
   useEffect(() => {
-    // Progressive haptic escalation
     if (Platform.OS !== 'web') {
       try {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } catch (e) {}
     }
 
     const stageTimer1 = setTimeout(() => {
-      setZoomStage('FOCUSING 4nm FINFET DIE');
+      setZoomStage('DIVING THROUGH GLASS PIXELS');
       if (Platform.OS !== 'web') {
         try {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
         } catch (e) {}
       }
-    }, 600);
+    }, 500);
 
     const stageTimer2 = setTimeout(() => {
-      setZoomStage('LOCKING SILICON & KERNEL BUS');
+      setZoomStage('WAKING UP THE OPERATING SYSTEM');
       if (Platform.OS !== 'web') {
         try {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } catch (e) {}
       }
-    }, 1200);
+    }, 1100);
 
-    // Zoom animation sequence
+    // Zoom animation sequence straight into the front screen glass
     Animated.parallel([
       Animated.timing(zoomAnim, {
-        toValue: 5.5,
-        duration: 1800,
+        toValue: 6.0,
+        duration: 1700,
         useNativeDriver: true,
       }),
       Animated.timing(opacityAnim, {
-        toValue: 0.2,
-        duration: 1800,
+        toValue: 0.1,
+        duration: 1700,
         useNativeDriver: true,
       }),
-      Animated.timing(dieOpacityAnim, {
+      Animated.timing(screenGlowAnim, {
         toValue: 1,
-        duration: 1400,
-        delay: 500,
+        duration: 1200,
+        delay: 350,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -81,44 +80,43 @@ export default function SiliconZoomTransitionScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Zooming Physical Board Viewport */}
+      {/* Zooming Physical Front Screen Frame */}
       <Animated.View
         style={[
           styles.zoomLayer,
           {
             transform: [
               { scale: zoomAnim },
-              // Anchor zoom at SoC coordinates (around center-top of board)
-              { translateX: -10 },
-              { translateY: 40 },
+              { translateY: -15 },
             ],
             opacity: opacityAnim,
           },
         ]}
       >
         <Image
-          source={require('../assets/chip_highlight_still.webp')}
+          source={require('../assets/teardown_frames/frame_59.webp')}
           style={styles.stillImage}
           contentFit="contain"
         />
       </Animated.View>
 
-      {/* Crossfading Macro Die Wireframe */}
+      {/* Screen Digital Glow & Pixel Matrix */}
       <Animated.View
         style={[
-          styles.dieLayer,
+          styles.digitalGlowLayer,
           {
-            opacity: dieOpacityAnim,
+            opacity: screenGlowAnim,
           },
         ]}
       >
-        <View style={styles.reticleRing} />
-        <View style={styles.reticleCrosshairH} />
-        <View style={styles.reticleCrosshairV} />
+        <View style={styles.pixelGrid}>
+          <View style={styles.reticleRing} />
+          <View style={styles.sparkleBadge}>
+            <Ionicons name="sparkles" size={32} color="#FFA07A" />
+            <Text style={styles.glowText}>ENTERING OS SOFTWARE</Text>
+          </View>
+        </View>
       </Animated.View>
-
-      {/* Optical Vignette Frame */}
-      <View style={styles.vignetteOverlay} pointerEvents="none" />
 
       {/* HUD Telemetry Overlay */}
       <View style={styles.hudOverlay}>
@@ -132,7 +130,7 @@ export default function SiliconZoomTransitionScreen() {
           </TouchableOpacity>
 
           <View style={styles.magnificationBadge}>
-            <Text style={styles.magnificationText}>MAGNIFICATION: 25,000x</Text>
+            <Text style={styles.magnificationText}>MAGNIFICATION: 10,000x</Text>
           </View>
 
           <TouchableOpacity style={styles.skipButton} onPress={skipTransition}>
@@ -146,7 +144,7 @@ export default function SiliconZoomTransitionScreen() {
             <Text style={styles.stageText}>{zoomStage}</Text>
           </View>
           <Text style={styles.hudSubtitle}>
-            Entering Cortex-X4 Prime Core and Linux Kernel Stack
+            Crossing from hardware components into the living OS software layer
           </Text>
         </View>
       </View>
@@ -157,7 +155,7 @@ export default function SiliconZoomTransitionScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050508',
+    backgroundColor: '#0A0A10',
     overflow: 'hidden',
   },
   zoomLayer: {
@@ -169,42 +167,41 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  dieLayer: {
+  digitalGlowLayer: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(221, 86, 34, 0.25)',
+  },
+  pixelGrid: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   reticleRing: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
     borderWidth: 2,
-    borderColor: Colors.studioOrange,
+    borderColor: '#FFA07A',
     borderStyle: 'dashed',
-  },
-  reticleCrosshairH: {
     position: 'absolute',
-    width: 240,
-    height: 1,
-    backgroundColor: 'rgba(221, 86, 34, 0.5)',
   },
-  reticleCrosshairV: {
-    position: 'absolute',
-    height: 240,
-    width: 1,
-    backgroundColor: 'rgba(221, 86, 34, 0.5)',
+  sparkleBadge: {
+    alignItems: 'center',
+    gap: 8,
   },
-  vignetteOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'transparent',
-    borderWidth: 30,
-    borderColor: 'rgba(5, 5, 8, 0.8)',
+  glowText: {
+    ...Typography.subhead,
+    color: '#FFFFFF',
+    fontWeight: '900',
+    letterSpacing: 2,
+    fontSize: 16,
   },
   hudOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
     padding: 20,
-    paddingTop: 50,
+    paddingTop: 45,
   },
   topRow: {
     flexDirection: 'row',
@@ -212,67 +209,75 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cancelButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   magnificationBadge: {
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   magnificationText: {
     ...Typography.tag,
-    color: Colors.studioOrange,
+    color: '#FFA07A',
     fontSize: 10,
+    fontWeight: '800',
   },
   skipButton: {
-    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 16,
   },
   skipButtonText: {
     ...Typography.tag,
     color: Colors.textWhite,
     fontSize: 11,
+    fontWeight: '800',
   },
   bottomHud: {
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 30,
+    gap: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   stageBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(221, 86, 34, 0.25)',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.studioOrange,
+    backgroundColor: 'rgba(221, 86, 34, 0.35)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
   },
   pulseDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: Colors.studioOrange,
+    backgroundColor: '#FFA07A',
   },
   stageText: {
     ...Typography.tag,
-    color: Colors.textWhite,
+    color: '#FFFFFF',
     fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   hudSubtitle: {
     ...Typography.bodySmall,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: 'rgba(255, 255, 255, 0.75)',
     fontSize: 12,
     textAlign: 'center',
   },

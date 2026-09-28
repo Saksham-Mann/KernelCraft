@@ -1,25 +1,23 @@
 export interface ComponentTelemetry {
+  technicalName: string;
+  subtitle: string;
+  summary: string;
   architecture: string;
-  material: string;
-  busInterface: string;
-  powerDraw: string;
-  operatingFreq: string;
-  thermalEnvelope: string;
-  engineeringNotes: string;
+  interfaceSpec: string;
+  keyFeatures: string[];
 }
 
 export interface TeardownAnnotation {
   id: string;
   name: string;
   tag: string;
-  category: 'SILICON' | 'OPTICS' | 'POWER' | 'THERMAL';
+  category: 'POWER' | 'OPTICS' | 'BRAIN' | 'MEMORY' | 'DISPLAY';
+  icon: string;
+  accentColor: string;
   anchorX: number; // Normalized X [0..1]
   anchorY: number; // Normalized Y [0..1]
   startProgress: number; // [0..1]
   endProgress: number;   // [0..1]
-  peakProgress: number;  // [0..1]
-  leaderLineDx: number;
-  leaderLineDy: number;
   telemetry: ComponentTelemetry;
 }
 
@@ -30,157 +28,172 @@ export interface TeardownMilestone {
   startProgress: number;
   endProgress: number;
   accentTag: string;
+  emoji: string;
 }
 
 export const TEARDOWN_MILESTONES: TeardownMilestone[] = [
   {
-    id: 'assembled',
+    id: 'closed_back',
     title: 'Assembled Device',
-    description: 'Factory sealed chassis with back cover and display intact.',
+    description: 'Hermetically sealed chassis protecting internal logic, optical array, and power substrate.',
     startProgress: 0.0,
     endProgress: 0.22,
     accentTag: 'CHASSIS',
+    emoji: '📱',
   },
   {
-    id: 'back_cover_removed',
-    title: 'Back Cover Removed',
-    description: 'Wireless charging coil, NFC antenna, and battery cell exposed.',
+    id: 'exploded_view',
+    title: 'Disassembled Architecture',
+    description: 'Substrates floating in 3D: High-density battery, CMOS sensor array, and LPDDR5 SoC logic board.',
     startProgress: 0.22,
-    endProgress: 0.48,
-    accentTag: 'COIL & POWER',
+    endProgress: 0.70,
+    accentTag: 'TEARDOWN',
+    emoji: '🔬',
   },
   {
-    id: 'exploded_layers',
-    title: 'Exploded Layers',
-    description: 'Motherboard, optics array, and cooling floating in 3D space.',
-    startProgress: 0.48,
-    endProgress: 0.75,
-    accentTag: 'MOTHERBOARD',
+    id: 'snapping_back',
+    title: 'Precision Reassembly',
+    description: 'Components locking back into the aluminum mid-frame and heat dissipation envelope.',
+    startProgress: 0.70,
+    endProgress: 0.86,
+    accentTag: 'ASSEMBLY',
+    emoji: '⚙️',
   },
   {
-    id: 'chassis_focus',
-    title: 'Silicon & Chassis',
-    description: 'Detailed substrate separation and silicon processor die focus.',
-    startProgress: 0.75,
+    id: 'front_screen',
+    title: 'Front Display Module',
+    description: 'Dynamic AMOLED panel facing forward, ready to transition into the OS runtime software layer.',
+    startProgress: 0.86,
     endProgress: 1.0,
-    accentTag: 'SILICON',
+    accentTag: 'RUNNING OS',
+    emoji: '💡',
   },
 ];
 
 export const TEARDOWN_ANNOTATIONS: TeardownAnnotation[] = [
   {
-    id: 'soc_processor',
-    name: 'Silicon SoC Die',
-    tag: '4nm Octa-Core Processor',
-    category: 'SILICON',
-    anchorX: 0.46,
-    anchorY: 0.32,
-    startProgress: 0.72,
-    endProgress: 1.0,
-    peakProgress: 0.92,
-    leaderLineDx: 0.16,
-    leaderLineDy: -0.08,
+    id: 'battery_pack',
+    name: 'Lithium-Ion Power Cell',
+    tag: 'Power Cell',
+    category: 'POWER',
+    icon: 'battery-charging',
+    accentColor: '#34C759',
+    anchorX: 0.48,
+    anchorY: 0.65,
+    startProgress: 0.22,
+    endProgress: 0.72,
     telemetry: {
-      architecture: 'ARMv9.2-A: 1x Cortex-X4 @ 3.3GHz + 5x Cortex-A720 + 2x Cortex-A520',
-      material: 'Monolithic 4nm FinFET Die on PoP LPDDR5X DRAM Stack',
-      busInterface: 'High-Speed AXI / PCIe Gen 4 x4 System Interconnect',
-      powerDraw: '3.5W Nominal TDP / 12W Short-Burst Peak',
-      operatingFreq: 'Up to 3.3 GHz Prime Core / 900 MHz GPU',
-      thermalEnvelope: 'Phase-Change TIM Paste directly bonded to Vapor Chamber',
-      engineeringNotes: 'Primary target for Silicon & Kernel Stack. Houses hardware security modules and CPU privilege rings.',
+      technicalName: 'Lithium-Ion Power Cell',
+      subtitle: 'Chemical Energy Storage & Power Management IC (PMIC)',
+      summary: 'Dual-cell high energy density lithium-polymer battery coupled with a fast-switching buck-boost Power Management IC (PMIC) distributing stabilized voltage rails to logic substrates.',
+      architecture: 'Series Dual-Cell Li-Po with Integrated Gas Gauge Sensor',
+      interfaceSpec: 'I2C / SMBus Coulomb Counter with Over-Current Protection',
+      keyFeatures: [
+        '5,000 mAh high-capacity chemical storage',
+        'Direct multi-rail PMIC distribution (1.8V, 3.3V, 0.9V core)',
+        'Thermal sensing NTC thermistors with auto-throttling safety cutoffs',
+      ],
     },
   },
   {
     id: 'camera_array',
-    name: 'Camera System',
-    tag: '50MP OIS + 12MP Ultra-Wide',
+    name: 'CMOS Sensor & ISP',
+    tag: 'CMOS & ISP',
     category: 'OPTICS',
+    icon: 'camera',
+    accentColor: '#007AFF',
     anchorX: 0.24,
-    anchorY: 0.42,
-    startProgress: 0.70,
-    endProgress: 1.0,
-    peakProgress: 0.88,
-    leaderLineDx: 0.14,
-    leaderLineDy: -0.06,
+    anchorY: 0.38,
+    startProgress: 0.22,
+    endProgress: 0.72,
     telemetry: {
-      architecture: 'Triple Optical Module with Ball-Bearing Voice Coil Actuators',
-      material: 'Machined Anodized 6000-Series Aluminum + Sapphire Glass',
-      busInterface: '4-Lane MIPI CSI-2 (2.5 Gbps/lane bandwidth)',
-      powerDraw: '1.8W Peak Multi-Sensor Synchronous Capture',
-      operatingFreq: 'Dual Spectral AF Sensing @ 120Hz',
-      thermalEnvelope: 'Direct Copper Heatpipe Coupling to Motherboard Shield',
-      engineeringNotes: 'Dedicated 4-axis hardware gyroscope drives real-time voice coil magnet positioning for optical image stabilization.',
+      technicalName: 'CMOS Sensor & ISP',
+      subtitle: 'Multi-lens optical array & Image Signal Processor',
+      summary: 'High-resolution back-illuminated (BSI) CMOS active-pixel sensor coupled to high-bandwidth MIPI CSI-2 serial data lanes feeding hardware Image Signal Processor (ISP) pipelines.',
+      architecture: 'Multi-Lens 50MP BSI Optical Array with Voice-Coil Actuators (OIS)',
+      interfaceSpec: '4-Lane MIPI CSI-2 (up to 2.5 Gbps per physical differential lane)',
+      keyFeatures: [
+        'Sub-micron quad-bayer photodiodes with phase detection autofocus',
+        'Zero-shutter-lag real-time hardware demosaicing and noise reduction',
+        'Direct DMA streaming into shared unified memory buffers for GPU consumption',
+      ],
     },
   },
   {
-    id: 'qi_coil',
-    name: 'Wireless Charging Coil',
-    tag: '15W Qi Fast Induction',
-    category: 'POWER',
-    anchorX: 0.48,
-    anchorY: 0.46,
-    startProgress: 0.24,
-    endProgress: 0.88,
-    peakProgress: 0.42,
-    leaderLineDx: 0.16,
-    leaderLineDy: -0.05,
-    telemetry: {
-      architecture: 'Planar Multi-Strand Litz Wire Coil Array',
-      material: 'Oxygen-Free High Thermal Conductivity Copper (OFHC)',
-      busInterface: 'I2C Dedicated PMIC Telemetry Bus (100kHz)',
-      powerDraw: '15W RX Induction / 5W Reverse Wireless TX',
-      operatingFreq: '110 kHz to 205 kHz Resonant Band',
-      thermalEnvelope: '38°C Active Thermal Throttle Ceiling',
-      engineeringNotes: 'High-permeability sintered ferrite sheet prevents magnetic eddy current coupling into the battery casing.',
-    },
-  },
-  {
-    id: 'battery_pack',
-    name: 'Battery Cell',
-    tag: '5000 mAh Dual-Cell',
-    category: 'POWER',
-    anchorX: 0.50,
-    anchorY: 0.68,
+    id: 'cpu_brain',
+    name: 'SoC & Logic Board',
+    tag: 'SoC & Logic',
+    category: 'BRAIN',
+    icon: 'hardware-chip',
+    accentColor: '#FF9500',
+    anchorX: 0.44,
+    anchorY: 0.26,
     startProgress: 0.25,
-    endProgress: 1.0,
-    peakProgress: 0.55,
-    leaderLineDx: -0.16,
-    leaderLineDy: -0.06,
+    endProgress: 0.72,
     telemetry: {
-      architecture: 'Dual-Cell Series Configuration with Dynamic Resistance Balancing',
-      material: 'Silicon-Carbon High-Density Anode + Polymer Electrolyte',
-      busInterface: 'HDQ / I2C Coulomb Counter Fuel Gauge',
-      powerDraw: 'Up to 65W High-Current Injection',
-      operatingFreq: '100 kHz Impedance Track Monitoring',
-      thermalEnvelope: 'Dual NTC Thermistors (Cutoff: 45°C charge / 60°C discharge)',
-      engineeringNotes: 'Laser-welded copper tab terminals minimize ESR impedance to mitigate thermal buildup during rapid charge cycles.',
+      technicalName: 'SoC & Logic Board',
+      subtitle: 'Central Processing Unit, GPU & Neural Engine',
+      summary: 'Monolithic silicon System-on-Chip (SoC) fabricated on leading-edge FinFET lithography. Integrates multi-cluster ARMv9 CPU cores, multi-core GPU, and dedicated Neural Processing Unit (NPU).',
+      architecture: 'ARMv9.2-A Tri-Cluster (Prime + Performance + Efficiency)',
+      interfaceSpec: 'Coherent AXI5 / NoC (Network-on-Chip) Interconnect at 3.3 GHz',
+      keyFeatures: [
+        'Prime compute core executing out-of-order superscalar instructions',
+        'Hardware memory management unit (MMU) with multi-level TLB translation',
+        'Hardware privilege rings enforcing strict User Space vs Kernel Space isolation',
+      ],
     },
   },
   {
-    id: 'vapor_chamber',
-    name: 'Vapor Chamber',
-    tag: '3D Titanium-Copper VC',
-    category: 'THERMAL',
-    anchorX: 0.66,
-    anchorY: 0.54,
-    startProgress: 0.70,
-    endProgress: 1.0,
-    peakProgress: 0.82,
-    leaderLineDx: -0.15,
-    leaderLineDy: -0.06,
+    id: 'ram_memory',
+    name: 'LPDDR5 High-Speed Memory',
+    tag: 'LPDDR5 RAM',
+    category: 'MEMORY',
+    icon: 'flash',
+    accentColor: '#AF52DE',
+    anchorX: 0.64,
+    anchorY: 0.33,
+    startProgress: 0.25,
+    endProgress: 0.72,
     telemetry: {
-      architecture: '0.4mm Ultra-Thin Sealed Two-Phase Thermal Spreader',
-      material: 'Oxygen-Free Copper with Sintered Powder Capillary Wick Structure',
-      busInterface: 'Thermodynamic Passive Capillary Loop',
-      powerDraw: '0W (Zero-Power Passive Phase Change)',
-      operatingFreq: 'Continuous Thermodynamic Vapor-Liquid Cycle',
-      thermalEnvelope: 'Dissipates up to 15W Across 4,200 mm² Spreader Area',
-      engineeringNotes: 'Deionized ultra-pure water working fluid vaporizes at hot spots, migrates across chassis, condenses, and returns via capillary action.',
+      technicalName: 'LPDDR5 High-Speed Memory',
+      subtitle: 'Volatile fast-access workspace for active tasks',
+      summary: 'Package-on-Package (PoP) low-power double data rate (LPDDR5) DRAM mounted directly atop the SoC die for ultra-short trace length and maximized memory bandwidth.',
+      architecture: '16-Bank LPDDR5 SDRAM with On-Die Error Correction Code (ECC)',
+      interfaceSpec: '64-bit Dual-Channel Bus operating at up to 6400 Mbps throughput',
+      keyFeatures: [
+        'Up to 51.2 GB/s ultra-wide aggregate memory throughput',
+        'Dynamic voltage & frequency scaling (DVFS) for low idle power draw',
+        'Holds active process page tables, stack segments, and mapped graphics surfaces',
+      ],
+    },
+  },
+  {
+    id: 'screen_display',
+    name: 'Dynamic AMOLED Panel',
+    tag: 'AMOLED Display',
+    category: 'DISPLAY',
+    icon: 'phone-portrait',
+    accentColor: '#FF2D55',
+    anchorX: 0.50,
+    anchorY: 0.50,
+    startProgress: 0.86,
+    endProgress: 0.93,
+    telemetry: {
+      technicalName: 'Dynamic AMOLED Panel',
+      subtitle: 'Self-Emissive Matrix & Display Driver IC (DDIC)',
+      summary: 'Flexible substrate active-matrix organic light-emitting diode (AMOLED) panel driven by a dedicated high-speed Display Driver IC (DDIC) connected via MIPI DSI.',
+      architecture: 'Diamond PenTile Organic LED Matrix with 120Hz LTPO Backplane',
+      interfaceSpec: 'MIPI DSI-2 with VESA Display Stream Compression (DSC)',
+      keyFeatures: [
+        'Over 2.4 million individual self-illuminating RGB subpixels',
+        'Hardware touch digitization layer sampling at 240Hz polling rate',
+        'Direct hardware frame-buffer presentation driven by Kernel SurfaceFlinger',
+      ],
     },
   },
 ];
 
-// Pre-mapped required static frame assets (00 to 39)
+// Pre-mapped required static frame assets (00 to 59: 60 frames)
 export const TEARDOWN_FRAME_ASSETS = [
   require('../../assets/teardown_frames/frame_00.webp'),
   require('../../assets/teardown_frames/frame_01.webp'),
@@ -222,6 +235,26 @@ export const TEARDOWN_FRAME_ASSETS = [
   require('../../assets/teardown_frames/frame_37.webp'),
   require('../../assets/teardown_frames/frame_38.webp'),
   require('../../assets/teardown_frames/frame_39.webp'),
+  require('../../assets/teardown_frames/frame_40.webp'),
+  require('../../assets/teardown_frames/frame_41.webp'),
+  require('../../assets/teardown_frames/frame_42.webp'),
+  require('../../assets/teardown_frames/frame_43.webp'),
+  require('../../assets/teardown_frames/frame_44.webp'),
+  require('../../assets/teardown_frames/frame_45.webp'),
+  require('../../assets/teardown_frames/frame_46.webp'),
+  require('../../assets/teardown_frames/frame_47.webp'),
+  require('../../assets/teardown_frames/frame_48.webp'),
+  require('../../assets/teardown_frames/frame_49.webp'),
+  require('../../assets/teardown_frames/frame_50.webp'),
+  require('../../assets/teardown_frames/frame_51.webp'),
+  require('../../assets/teardown_frames/frame_52.webp'),
+  require('../../assets/teardown_frames/frame_53.webp'),
+  require('../../assets/teardown_frames/frame_54.webp'),
+  require('../../assets/teardown_frames/frame_55.webp'),
+  require('../../assets/teardown_frames/frame_56.webp'),
+  require('../../assets/teardown_frames/frame_57.webp'),
+  require('../../assets/teardown_frames/frame_58.webp'),
+  require('../../assets/teardown_frames/frame_59.webp'),
 ];
 
 export const TOTAL_FRAMES = TEARDOWN_FRAME_ASSETS.length;
