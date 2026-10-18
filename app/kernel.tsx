@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,16 +20,22 @@ import { BinderTracer } from '../src/components/BinderTracer';
 import { SyscallSimulatorView } from '../src/components/SyscallSimulatorView';
 import { Ionicons } from '@expo/vector-icons';
 
-type PrimarySectionTab = 'SIMULATOR' | 'DEVICE_OS' | 'ARCH_TIERS';
+type PrimarySectionTab = 'ARCH_TIERS' | 'SIMULATOR' | 'DEVICE_OS';
 type ActiveSimTab = 'SYSCALL' | 'CPU' | 'MEMORY' | 'BINDER';
 
 export default function KernelStackExplorerScreen() {
   const router = useRouter();
-  const [primaryTab, setPrimaryTab] = useState<PrimarySectionTab>('SIMULATOR');
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [primaryTab, setPrimaryTab] = useState<PrimarySectionTab>('ARCH_TIERS');
   const [selectedTierIndex, setSelectedTierIndex] = useState(1); // Default to Linux Kernel
   const [activeSimTab, setActiveSimTab] = useState<ActiveSimTab>('SYSCALL');
 
   const activeTier = OS_TIERS[selectedTierIndex];
+
+  const handleTabChange = (tab: PrimarySectionTab) => {
+    setPrimaryTab(tab);
+    scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -58,14 +64,37 @@ export default function KernelStackExplorerScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Primary Feature Tabs Toggle (Simulator | My Device OS | Arch Layers) */}
+        {/* Primary Feature Tabs Toggle (1st: OS Layers | 2nd: App Execution | 3rd: My Device OS) */}
         <View style={styles.primaryTabsRow}>
+          <TouchableOpacity
+            style={[
+              styles.primaryTabButton,
+              primaryTab === 'ARCH_TIERS' && styles.primaryTabButtonActive,
+            ]}
+            onPress={() => handleTabChange('ARCH_TIERS')}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="layers-outline"
+              size={14}
+              color={primaryTab === 'ARCH_TIERS' ? '#FFFFFF' : Colors.inkLight}
+            />
+            <Text
+              style={[
+                styles.primaryTabText,
+                primaryTab === 'ARCH_TIERS' && styles.primaryTabTextActive,
+              ]}
+            >
+              OS Layers
+            </Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={[
               styles.primaryTabButton,
               primaryTab === 'SIMULATOR' && styles.primaryTabButtonActive,
             ]}
-            onPress={() => setPrimaryTab('SIMULATOR')}
+            onPress={() => handleTabChange('SIMULATOR')}
             activeOpacity={0.8}
           >
             <Ionicons
@@ -88,7 +117,7 @@ export default function KernelStackExplorerScreen() {
               styles.primaryTabButton,
               primaryTab === 'DEVICE_OS' && styles.primaryTabButtonActive,
             ]}
-            onPress={() => setPrimaryTab('DEVICE_OS')}
+            onPress={() => handleTabChange('DEVICE_OS')}
             activeOpacity={0.8}
           >
             <Ionicons
@@ -105,45 +134,18 @@ export default function KernelStackExplorerScreen() {
               My Device OS
             </Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.primaryTabButton,
-              primaryTab === 'ARCH_TIERS' && styles.primaryTabButtonActive,
-            ]}
-            onPress={() => setPrimaryTab('ARCH_TIERS')}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name="layers-outline"
-              size={14}
-              color={primaryTab === 'ARCH_TIERS' ? '#FFFFFF' : Colors.inkLight}
-            />
-            <Text
-              style={[
-                styles.primaryTabText,
-                primaryTab === 'ARCH_TIERS' && styles.primaryTabTextActive,
-              ]}
-            >
-              OS Layers
-            </Text>
-          </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* TAB 1: Simplified 5-Step Process Execution Simulation */}
-          {primaryTab === 'SIMULATOR' && (
-            <View style={styles.tabSectionWrap}>
-              <AppExecutionSimulator />
-            </View>
-          )}
-
-          {/* TAB 2: My Device OS Inspector (Live Telemetry & CPU Scheduler Playground Analogy) */}
-          {primaryTab === 'DEVICE_OS' && (
-            <View style={styles.tabSectionWrap}>
-              <MyDeviceInspector />
-            </View>
-          )}
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={true}
+          nestedScrollEnabled={true}
+          bounces={true}
+          alwaysBounceVertical={true}
+          keyboardShouldPersistTaps="handled"
+        >
 
           {/* TAB 3: OS Architecture Hierarchy & Deep Tiers */}
           {primaryTab === 'ARCH_TIERS' && (
@@ -315,6 +317,20 @@ export default function KernelStackExplorerScreen() {
               </View>
             </View>
           )}
+
+          {/* TAB 2: Simplified 5-Step Process Execution Simulation */}
+          {primaryTab === 'SIMULATOR' && (
+            <View style={styles.tabSectionWrap}>
+              <AppExecutionSimulator />
+            </View>
+          )}
+
+          {/* TAB 3: My Device OS Inspector (Live Telemetry & CPU Scheduler Playground Analogy) */}
+          {primaryTab === 'DEVICE_OS' && (
+            <View style={styles.tabSectionWrap}>
+              <MyDeviceInspector />
+            </View>
+          )}
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -324,11 +340,16 @@ export default function KernelStackExplorerScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+    height: '100%',
     backgroundColor: '#0A0A10',
   },
   container: {
     flex: 1,
+    height: '100%',
     backgroundColor: '#0A0A10',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
   },
   topBar: {
     flexDirection: 'row',
@@ -402,9 +423,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '800',
   },
+  scrollView: {
+    flex: 1,
+    width: '100%',
+  },
   scrollContent: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 60,
+    flexGrow: 1,
   },
   tabSectionWrap: {
     gap: 14,

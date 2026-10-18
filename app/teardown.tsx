@@ -37,12 +37,49 @@ export default function TeardownScreen() {
   const zoomScale = useRef(new Animated.Value(1)).current;
   const zoomOpacity = useRef(new Animated.Value(1)).current;
 
-  // Reset zoom and opacity whenever screen gains focus
+  // Apply clamped progress bidirectionally with no latching
+  const applyProgress = useCallback((newProgress: number) => {
+    const clamped = Math.max(0, Math.min(1, newProgress));
+    setProgress(clamped);
+
+    // Auto-dismiss modal if scrolled far away from component range
+    setSelectedAnnotation((prev) => {
+      if (prev && (clamped < prev.startProgress - 0.08 || clamped > prev.endProgress + 0.08)) {
+        return null;
+      }
+      return prev;
+    });
+  }, []);
+
+  // Screen focus effect: reset zoom/opacity and attach wheel listener ONLY while teardown is focused
   useFocusEffect(
     useCallback(() => {
       zoomScale.setValue(1);
       zoomOpacity.setValue(1);
-    }, [zoomScale, zoomOpacity])
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const handleWheel = (e: WheelEvent) => {
+          e.preventDefault();
+          // Dampen wheel sensitivity significantly so user scrolls deliberately
+          const rawDelta = e.deltaY;
+          const clampedDelta = Math.max(-100, Math.min(100, rawDelta));
+          const step = clampedDelta * 0.00022;
+
+          const currentP = progressRef.current;
+          const nextP = Math.max(0, Math.min(1, currentP + step));
+
+          if (nextP !== currentP) {
+            progressRef.current = nextP;
+            applyProgress(nextP);
+          }
+        };
+
+        window.addEventListener('wheel', handleWheel, { passive: false });
+        return () => {
+          window.removeEventListener('wheel', handleWheel);
+        };
+      }
+    }, [zoomScale, zoomOpacity, applyProgress])
   );
 
   // Fade and pulse animation for the single centered "Dive In" button
@@ -93,45 +130,7 @@ export default function TeardownScreen() {
     }
   }, [isFinalFrontScreen]);
 
-  // Apply clamped progress bidirectionally with no latching
-  const applyProgress = useCallback((newProgress: number) => {
-    const clamped = Math.max(0, Math.min(1, newProgress));
-    setProgress(clamped);
 
-    // Auto-dismiss modal if scrolled far away from component range
-    setSelectedAnnotation((prev) => {
-      if (prev && (clamped < prev.startProgress - 0.08 || clamped > prev.endProgress + 0.08)) {
-        return null;
-      }
-      return prev;
-    });
-  }, []);
-
-  // Web Wheel Listener: Deliberate, dampened, true bidirectional scrubbing
-  useEffect(() => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const handleWheel = (e: WheelEvent) => {
-        e.preventDefault();
-        // Dampen wheel sensitivity significantly so user scrolls deliberately
-        const rawDelta = e.deltaY;
-        const clampedDelta = Math.max(-100, Math.min(100, rawDelta));
-        const step = clampedDelta * 0.00022;
-
-        const currentP = progressRef.current;
-        const nextP = Math.max(0, Math.min(1, currentP + step));
-
-        if (nextP !== currentP) {
-          progressRef.current = nextP;
-          applyProgress(nextP);
-        }
-      };
-
-      window.addEventListener('wheel', handleWheel, { passive: false });
-      return () => {
-        window.removeEventListener('wheel', handleWheel);
-      };
-    }
-  }, [applyProgress]);
 
   // Touch handlers for mobile / tablet drag scrubbing (bidirectional)
   const touchStartY = useRef<number | null>(null);
