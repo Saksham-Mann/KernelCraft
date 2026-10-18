@@ -8,10 +8,9 @@ import {
   Platform,
   Animated,
   GestureResponderEvent,
-  ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Colors } from '../src/theme/colors';
 import { Typography } from '../src/theme/typography';
 import {
@@ -21,20 +20,11 @@ import {
   TeardownAnnotation,
 } from '../src/data/teardownData';
 import { AnnotationOverlay } from '../src/components/AnnotationOverlay';
-import { AppExecutionSimulator } from '../src/components/AppExecutionSimulator';
-import { MyDeviceInspector } from '../src/components/MyDeviceInspector';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-type ScreenMode = 'TEARDOWN' | 'OS_SIMULATION';
-type OsTab = 'SIMULATOR' | 'DEVICE_OS';
-
 export default function TeardownScreen() {
   const router = useRouter();
-
-  // Screen Mode: 'TEARDOWN' or 'OS_SIMULATION'
-  const [screenMode, setScreenMode] = useState<ScreenMode>('TEARDOWN');
-  const [osTab, setOsTab] = useState<OsTab>('SIMULATOR');
 
   const [progress, setProgress] = useState(0.0);
   const [selectedAnnotation, setSelectedAnnotation] = useState<TeardownAnnotation | null>(null);
@@ -46,7 +36,14 @@ export default function TeardownScreen() {
   // Zoom animation for phone screen container when "Dive In" is clicked
   const zoomScale = useRef(new Animated.Value(1)).current;
   const zoomOpacity = useRef(new Animated.Value(1)).current;
-  const osFadeAnim = useRef(new Animated.Value(0)).current;
+
+  // Reset zoom and opacity whenever screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      zoomScale.setValue(1);
+      zoomOpacity.setValue(1);
+    }, [zoomScale, zoomOpacity])
+  );
 
   // Fade and pulse animation for the single centered "Dive In" button
   const diveInFadeAnim = useRef(new Animated.Value(0)).current;
@@ -114,9 +111,6 @@ export default function TeardownScreen() {
   useEffect(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const handleWheel = (e: WheelEvent) => {
-        // Only scrub while on TEARDOWN view and no modal open
-        if (screenMode !== 'TEARDOWN') return;
-
         e.preventDefault();
         // Dampen wheel sensitivity significantly so user scrolls deliberately
         const rawDelta = e.deltaY;
@@ -137,7 +131,7 @@ export default function TeardownScreen() {
         window.removeEventListener('wheel', handleWheel);
       };
     }
-  }, [screenMode, applyProgress]);
+  }, [applyProgress]);
 
   // Touch handlers for mobile / tablet drag scrubbing (bidirectional)
   const touchStartY = useRef<number | null>(null);
@@ -145,14 +139,13 @@ export default function TeardownScreen() {
   const hasMovedSignificantly = useRef<boolean>(false);
 
   const handleTouchStart = (e: GestureResponderEvent) => {
-    if (screenMode !== 'TEARDOWN') return;
     touchStartY.current = e.nativeEvent.pageY;
     touchStartProgress.current = progressRef.current;
     hasMovedSignificantly.current = false;
   };
 
   const handleTouchMove = (e: GestureResponderEvent) => {
-    if (screenMode !== 'TEARDOWN' || touchStartY.current === null) return;
+    if (touchStartY.current === null) return;
     const deltaY = touchStartY.current - e.nativeEvent.pageY;
 
     if (Math.abs(deltaY) > 6) {
@@ -172,7 +165,7 @@ export default function TeardownScreen() {
     touchStartY.current = null;
   };
 
-  // Dive In Click Handler: quick zoom-in scale animation then transitions to OS simulation
+  // Dive In Click Handler: quick zoom-in scale animation then navigates directly to OS layer
   const handleDiveIn = () => {
     if (Platform.OS !== 'web') {
       try {
@@ -192,21 +185,12 @@ export default function TeardownScreen() {
         useNativeDriver: true,
       }),
     ]).start(() => {
-      setScreenMode('OS_SIMULATION');
-      Animated.timing(osFadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      router.push('/kernel');
+      setTimeout(() => {
+        zoomScale.setValue(1);
+        zoomOpacity.setValue(1);
+      }, 500);
     });
-  };
-
-  // Return from OS simulation back to hardware teardown
-  const handleBackToTeardown = () => {
-    zoomScale.setValue(1);
-    zoomOpacity.setValue(1);
-    osFadeAnim.setValue(0);
-    setScreenMode('TEARDOWN');
   };
 
   // Click any hardware tag -> open clean popup modal
@@ -227,11 +211,7 @@ export default function TeardownScreen() {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* ============================================================== */}
-        {/* MODE 1: HARDWARE TEARDOWN VIEW                                 */}
-        {/* ============================================================== */}
-        {screenMode === 'TEARDOWN' && (
-          <View style={styles.teardownWrapper}>
+        <View style={styles.teardownWrapper}>
             {/* Top Bar Header */}
             <View style={styles.topBar}>
               <TouchableOpacity
@@ -439,91 +419,6 @@ export default function TeardownScreen() {
               </View>
             )}
           </View>
-        )}
-
-        {/* ============================================================== */}
-        {/* MODE 2: OS SIMULATION VIEW (REVEALED ON DIVE IN)               */}
-        {/* ============================================================== */}
-        {screenMode === 'OS_SIMULATION' && (
-          <Animated.View style={[styles.osWrapper, { opacity: osFadeAnim }]}>
-            {/* OS Navigation Bar */}
-            <View style={styles.topBar}>
-              <TouchableOpacity
-                style={styles.backHardwareButton}
-                onPress={handleBackToTeardown}
-                accessibilityLabel="Back to Hardware Teardown"
-              >
-                <Ionicons name="hardware-chip" size={16} color="#FFFFFF" />
-                <Text style={styles.backHardwareText}>HARDWARE TEARDOWN</Text>
-              </TouchableOpacity>
-
-              <View style={styles.topBarCenter}>
-                <Text style={styles.screenHeaderTitle}>OS SOFTWARE LAYER</Text>
-                <Text style={styles.screenHeaderSubtitle}>LIVING SYSTEM RUNTIME</Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.circleIconButton}
-                onPress={() => router.push('/kernel')}
-                accessibilityLabel="Open Full Kernel Stack"
-              >
-                <Ionicons name="layers-outline" size={18} color={Colors.textWhite} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Segmented Feature Toggle */}
-            <View style={styles.osTabPillsRow}>
-              <TouchableOpacity
-                style={[styles.osTabPill, osTab === 'SIMULATOR' && styles.osTabPillActive]}
-                onPress={() => setOsTab('SIMULATOR')}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="git-branch"
-                  size={14}
-                  color={osTab === 'SIMULATOR' ? '#FFFFFF' : Colors.inkLight}
-                />
-                <Text
-                  style={[
-                    styles.osTabPillText,
-                    osTab === 'SIMULATOR' && styles.osTabPillTextActive,
-                  ]}
-                >
-                  Execution Pipeline (Decision Tree)
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.osTabPill, osTab === 'DEVICE_OS' && styles.osTabPillActive]}
-                onPress={() => setOsTab('DEVICE_OS')}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="speedometer-outline"
-                  size={14}
-                  color={osTab === 'DEVICE_OS' ? '#FFFFFF' : Colors.inkLight}
-                />
-                <Text
-                  style={[
-                    styles.osTabPillText,
-                    osTab === 'DEVICE_OS' && styles.osTabPillTextActive,
-                  ]}
-                >
-                  My Device OS
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* OS Simulation Content */}
-            <ScrollView
-              contentContainerStyle={styles.osScrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {osTab === 'SIMULATOR' && <AppExecutionSimulator />}
-              {osTab === 'DEVICE_OS' && <MyDeviceInspector />}
-            </ScrollView>
-          </Animated.View>
-        )}
       </View>
     </SafeAreaView>
   );
@@ -543,10 +438,6 @@ const styles = StyleSheet.create({
     display: 'flex',
     flexDirection: 'column',
     position: 'relative',
-  },
-  osWrapper: {
-    flex: 1,
-    backgroundColor: '#0A0A10',
   },
   topBar: {
     flexDirection: 'row',
@@ -581,22 +472,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     marginTop: 2,
     fontWeight: '700',
-  },
-  backHardwareButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
-  },
-  backHardwareText: {
-    ...Typography.tag,
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '800',
   },
   viewportContainer: {
     flex: 1,
@@ -831,48 +706,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.5,
-  },
-  osTabPillsRow: {
-    flexDirection: 'row',
-    backgroundColor: '#141422',
-    padding: 6,
-    marginHorizontal: 16,
-    marginTop: 6,
-    marginBottom: 10,
-    borderRadius: 16,
-    gap: 8,
-  },
-  osTabPill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 12,
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
-  },
-  osTabPillActive: {
-    backgroundColor: Colors.studioOrange,
-    shadowColor: Colors.studioOrange,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  osTabPillText: {
-    ...Typography.tag,
-    color: Colors.inkLight,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  osTabPillTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  osScrollContent: {
-    padding: 16,
-    gap: 16,
-    paddingBottom: 40,
   },
 });
