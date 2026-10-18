@@ -95,7 +95,7 @@ export const MilestoneCard: React.FC<MilestoneCardProps> = ({
                     {selectedAnnotation.tag.toUpperCase()}
                   </Text>
                 </View>
-                <Text style={styles.kidTitle}>{selectedAnnotation.telemetry.simpleTitle}</Text>
+                <Text style={styles.kidTitle}>{selectedAnnotation.telemetry.technicalName}</Text>
               </View>
             </View>
 
@@ -116,21 +116,21 @@ export const MilestoneCard: React.FC<MilestoneCardProps> = ({
             ]}
           >
             <Text style={styles.simpleExplanation}>
-              "{selectedAnnotation.telemetry.simpleExplanation}"
+              "{selectedAnnotation.telemetry.summary}"
             </Text>
           </View>
 
           {/* Fun Detail & Metaphor */}
-          <Text style={styles.funDetail}>{selectedAnnotation.telemetry.funDetail}</Text>
+          <Text style={styles.funDetail}>{selectedAnnotation.telemetry.subtitle}</Text>
 
           <View style={styles.funStatsRow}>
             <View style={styles.funStatChip}>
               <Ionicons name="sparkles" size={13} color={selectedAnnotation.accentColor} />
-              <Text style={styles.funStatText}>{selectedAnnotation.telemetry.kidMetaphor}</Text>
+              <Text style={styles.funStatText}>{selectedAnnotation.telemetry.architecture}</Text>
             </View>
             <View style={styles.funStatChip}>
               <Ionicons name="flash-outline" size={13} color={selectedAnnotation.accentColor} />
-              <Text style={styles.funStatText}>{selectedAnnotation.telemetry.powerOrSpeed}</Text>
+              <Text style={styles.funStatText}>{selectedAnnotation.telemetry.interfaceSpec}</Text>
             </View>
           </View>
         </View>
