@@ -54,35 +54,33 @@ export default function SplashScreen() {
       }),
       Animated.timing(progressAnim, {
         toValue: 1,
-        duration: 1800,
+        duration: 1200,
         useNativeDriver: false,
       }),
     ]).start();
 
-    const preloadPromise = (async () => {
+    // Non-blocking background preload of initial frame for instant paint
+    (async () => {
       try {
-        const loadedAssets = await Asset.loadAsync(TEARDOWN_FRAME_ASSETS);
+        const loadedAssets = await Asset.loadAsync(TEARDOWN_FRAME_ASSETS[0]);
         const uris = loadedAssets
           .map((a) => a.localUri || a.uri)
           .filter((u): u is string => Boolean(u));
         if (uris.length > 0) {
           await Image.prefetch(uris, 'memory-disk');
         }
-      } catch (e) {
-        console.warn('Teardown frame preload warning:', e);
-      }
+      } catch (e) {}
     })();
 
-    const minSplashDelay = new Promise((resolve) => setTimeout(resolve, 1400));
-
-    Promise.all([preloadPromise, minSplashDelay]).then(() => {
+    const timer = setTimeout(() => {
       if (isMounted) {
         router.replace('/teardown');
       }
-    });
+    }, 1200);
 
     return () => {
       isMounted = false;
+      clearTimeout(timer);
     };
   }, [router]);
 
