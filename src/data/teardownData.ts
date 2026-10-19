@@ -173,7 +173,7 @@ export const TEARDOWN_ANNOTATIONS: TeardownAnnotation[] = [
     anchorX: 0.50,
     anchorY: 0.50,
     startProgress: 0.91,
-    endProgress: 1.0,
+    endProgress: 0.984,
     telemetry: {
       technicalName: 'AMOLED Display',
       subtitle: 'Millions of microscopic self-glowing pixels.',

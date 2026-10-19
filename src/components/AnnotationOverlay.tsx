@@ -36,7 +36,7 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
           return null;
         }
 
-        const ramp = 0.035;
+        const ramp = ann.id === 'screen_display' ? 0.008 : 0.035;
         let alpha = 1.0;
         if (progress < ann.startProgress + ramp) {
           const t = (progress - ann.startProgress) / ramp;

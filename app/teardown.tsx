@@ -34,13 +34,16 @@ import * as Haptics from 'expo-haptics';
  * 1. Clean header with ONLY "HARDWARE TEARDOWN" (Plus Jakarta Sans, no subtitles)
  * 2. High-performance PanResponder drag scrubbing for Mobile (iOS/Android) and Web
  * 3. Stable component inspection pins with generous touch hitboxes
- * 4. Front AMOLED display holds comfortably (+1 extra dwell step) before transition
- * 5. Fluid, continuous bidirectional transition between Teardown and OS layer without black buffer glitches
+ * 4. Front AMOLED display holds comfortably with extended dwell (+2 extra dwell steps)
+ * 5. Fluid, continuous bidirectional transition between Teardown and OS layer without glitches
  */
 // Sequence Step Constants:
-// 60 teardown frames (0..58) + 1 extra dwell step on frame 59 (steps 59..60)
-const TOTAL_SEQUENCE_STEPS = TOTAL_FRAMES + 1; // 61 total sequence steps (0..60)
-const FRAME_59_PROGRESS = (TOTAL_FRAMES - 1) / (TOTAL_SEQUENCE_STEPS - 1); // 59 / 60 ≈ 0.9833
+// 60 teardown frames (0..58) + 2 extra dwell steps on frame 59 (steps 59..61) + 1 exit buffer step (step 62)
+const DWELL_STEPS = 2; // Extended front display dwell (+1 extra scroll step)
+const BUFFER_STEPS = 1; // Exit sequence buffer where red AMOLED pin cleanly disappears before OS transition
+const TOTAL_SEQUENCE_STEPS = TOTAL_FRAMES + DWELL_STEPS + BUFFER_STEPS; // 63 total sequence steps (0..62)
+const FRAME_59_PROGRESS = (TOTAL_FRAMES - 1) / (TOTAL_SEQUENCE_STEPS - 1); // 59 / 62 ≈ 0.9516
+const RED_PIN_END_PROGRESS = (TOTAL_FRAMES - 1 + DWELL_STEPS) / (TOTAL_SEQUENCE_STEPS - 1); // 61 / 62 ≈ 0.9839
 
 export default function TeardownScreen() {
   const router = useRouter();
@@ -241,10 +244,10 @@ export default function TeardownScreen() {
           const currentTarget = targetProgress.current;
           const nextTarget = currentTarget + step;
 
-          if (step > 0 && currentTarget >= 0.995 && interpolatedProgress.current >= 0.985) {
-            // Reached the front screen dwell step -> downward scroll triggers OS transition
+          if (step > 0 && currentTarget >= 0.999 && interpolatedProgress.current >= 0.995) {
+            // Reached the end of the buffer step -> downward scroll triggers OS transition
             overscrollAccumulator.current += step;
-            if (overscrollAccumulator.current >= 0.003) {
+            if (overscrollAccumulator.current >= 0.025) {
               overscrollAccumulator.current = 0;
               transitionToOS();
               return;
@@ -302,9 +305,9 @@ export default function TeardownScreen() {
         const deltaProgress = -gestureState.dy / travelDistance;
         const nextTarget = touchStartProgress.current + deltaProgress;
 
-        if (nextTarget > 1.01) {
+        if (nextTarget > 1.015) {
           overscrollAccumulator.current += 0.005;
-          if (overscrollAccumulator.current >= 0.01) {
+          if (overscrollAccumulator.current >= 0.015) {
             overscrollAccumulator.current = 0;
             transitionToOS();
           }
@@ -316,8 +319,8 @@ export default function TeardownScreen() {
       },
       onPanResponderRelease: (_, gestureState) => {
         isDragging.current = false;
-        if (targetProgress.current >= 0.99 && gestureState.vy < -0.15) {
-          // Fling upward at end transitions to OS
+        if (targetProgress.current >= 0.999 && gestureState.vy < -0.3) {
+          // Fling upward at end of buffer transitions to OS
           transitionToOS();
         } else if (targetProgress.current > 1.0) {
           transitionToOS();
@@ -332,14 +335,14 @@ export default function TeardownScreen() {
     })
   ).current;
 
-  // Calculate current sequence step strictly clamped to 0..60 (60 frames + 1 extra dwell step)
+  // Calculate current sequence step strictly clamped to 0..62 (60 frames + 2 dwell steps + 1 exit buffer step)
   const currentStepIndex = Math.min(
     TOTAL_SEQUENCE_STEPS - 1,
     Math.max(0, Math.round(progress * (TOTAL_SEQUENCE_STEPS - 1)))
   );
 
   // Clamped hardware frame asset index:
-  // Steps 0..58 map to frames 0..58. Steps 59 & 60 both hold frame 59 (flat front display +1 extra dwell step).
+  // Steps 0..58 map to frames 0..58. Steps 59..62 all hold frame 59 (flat front display + extended dwell & buffer).
   const currentFrameIndex = Math.min(TOTAL_FRAMES - 1, currentStepIndex);
 
   // Click any hardware pin or badge -> open clean modal
