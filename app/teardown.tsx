@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Image } from 'expo-image';
+import { Asset } from 'expo-asset';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors } from '../src/theme/colors';
 import { Typography, FontFamilies } from '../src/theme/typography';
@@ -20,8 +21,11 @@ import {
   TOTAL_FRAMES,
   TEARDOWN_ANNOTATIONS,
   TeardownAnnotation,
+  getMilestoneForProgress,
 } from '../src/data/teardownData';
 import { AnnotationOverlay } from '../src/components/AnnotationOverlay';
+import { TeardownScrubber } from '../src/components/TeardownScrubber';
+import { MilestoneCard } from '../src/components/MilestoneCard';
 import { KernelStackExplorerView } from './kernel';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -79,7 +83,14 @@ export default function TeardownScreen() {
   const isTransitioningRef = useRef(false);
   const overscrollAccumulator = useRef(0);
 
+  // Ensure frames are preloaded even on direct navigation to /teardown
+  useEffect(() => {
+    Asset.loadAsync(TEARDOWN_FRAME_ASSETS).catch(() => {});
+  }, []);
+
   // Continuous smooth physics loop using requestAnimationFrame (60fps/120fps fluid lerp)
+  const lastEmittedProgress = useRef(initialProgressVal);
+
   useEffect(() => {
     if (activeSection !== 'TEARDOWN') return;
 
@@ -93,9 +104,16 @@ export default function TeardownScreen() {
         // Smooth exponential damping (responsive & fluid momentum)
         const next = current + diff * 0.18;
         interpolatedProgress.current = next;
-        setProgress(next);
-      } else if (current !== target) {
+
+        const nextStep = Math.round(next * (TOTAL_SEQUENCE_STEPS - 1));
+        const lastStep = Math.round(lastEmittedProgress.current * (TOTAL_SEQUENCE_STEPS - 1));
+        if (nextStep !== lastStep || Math.abs(next - lastEmittedProgress.current) >= 0.002) {
+          lastEmittedProgress.current = next;
+          setProgress(next);
+        }
+      } else if (current !== target || lastEmittedProgress.current !== target) {
         interpolatedProgress.current = target;
+        lastEmittedProgress.current = target;
         setProgress(target);
       }
 
@@ -105,6 +123,14 @@ export default function TeardownScreen() {
     rafId = requestAnimationFrame(updatePhysics);
     return () => cancelAnimationFrame(rafId);
   }, [activeSection]);
+
+  const handleProgressChange = useCallback((newProgress: number) => {
+    const clamped = Math.max(0, Math.min(1.0, newProgress));
+    targetProgress.current = clamped;
+    interpolatedProgress.current = clamped;
+    lastEmittedProgress.current = clamped;
+    setProgress(clamped);
+  }, []);
 
   // Seamless transition into OS Section (smooth zoom into the glass display)
   const transitionToOS = useCallback(() => {
@@ -357,14 +383,24 @@ export default function TeardownScreen() {
               setViewportSize({ width, height });
             }}
           >
-            {/* Full Lifecycle Teardown Image Frame (60 frames) */}
-            <Image
-              source={TEARDOWN_FRAME_ASSETS[currentFrameIndex]}
-              style={styles.frameImage}
-              contentFit="contain"
-              transition={0}
-              priority="high"
-            />
+            {/* Pre-mounted stack of 60 frames kept in memory */}
+            <View style={styles.frameImage}>
+              {TEARDOWN_FRAME_ASSETS.map((asset, idx) => (
+                <Image
+                  key={idx}
+                  source={asset}
+                  style={[
+                    StyleSheet.absoluteFill,
+                    { opacity: idx === currentFrameIndex ? 1 : 0 },
+                  ]}
+                  contentFit="contain"
+                  transition={0}
+                  cachePolicy="memory-disk"
+                  priority="high"
+                  recyclingKey={`teardown-frame-${idx}`}
+                />
+              ))}
+            </View>
 
             {/* Floating Hardware Component Hotspots & Pill Tags */}
             <AnnotationOverlay
@@ -376,6 +412,27 @@ export default function TeardownScreen() {
               selectedId={selectedAnnotation?.id}
             />
           </View>
+
+          {/* Interactive Hardware Controls & Scrub Progress */}
+          <TeardownScrubber
+            progress={progress}
+            currentFrame={currentFrameIndex}
+            totalFrames={TOTAL_FRAMES}
+            onProgressChange={handleProgressChange}
+            onRewind={() => handleProgressChange(0)}
+            onExplode={() => handleProgressChange(1)}
+          />
+
+          {/* Milestone Story & Dive In CTA Card */}
+          <MilestoneCard
+            milestone={getMilestoneForProgress(progress)}
+            selectedAnnotation={selectedAnnotation}
+            progress={progress}
+            onClearSelectedAnnotation={() => setSelectedAnnotation(null)}
+            onSelectAnnotation={handleSelectAnnotation}
+            allAnnotations={TEARDOWN_ANNOTATIONS}
+            onDiveIn={transitionToOS}
+          />
         </Animated.View>
 
         {/* SECTION 2: OS SOFTWARE LAYER VIEW (Continuously Coordinated) */}
@@ -405,104 +462,6 @@ export default function TeardownScreen() {
             onScrollUpToTeardown={transitionToTeardown}
           />
         </Animated.View>
-
-        {/* Simple, Fun & Accessible Component Details Modal */}
-        {selectedAnnotation && (
-          <View style={styles.modalBackdrop}>
-            <TouchableOpacity
-              style={StyleSheet.absoluteFill}
-              activeOpacity={1}
-              onPress={() => setSelectedAnnotation(null)}
-            />
-            <View style={styles.modalCard}>
-              {/* Modal Header */}
-              <View style={styles.modalHeaderRow}>
-                <View style={styles.modalHeaderLeft}>
-                  <View
-                    style={[
-                      styles.modalIconBox,
-                      { backgroundColor: selectedAnnotation.accentColor },
-                    ]}
-                  >
-                    <Ionicons
-                      name={selectedAnnotation.icon as any}
-                      size={20}
-                      color="#FFFFFF"
-                    />
-                  </View>
-                  <View style={styles.modalHeaderTitleCol}>
-                    <Text style={styles.modalComponentName}>
-                      {selectedAnnotation.telemetry.technicalName}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.modalComponentSubtitle,
-                        { color: selectedAnnotation.accentColor },
-                      ]}
-                      numberOfLines={2}
-                    >
-                      {selectedAnnotation.telemetry.subtitle}
-                    </Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.modalCloseButton}
-                  onPress={() => setSelectedAnnotation(null)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close component details"
-                >
-                  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                    <Path
-                      d="M18 6L6 18M6 6l12 12"
-                      stroke="#FFFFFF"
-                      strokeWidth={2.2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </Svg>
-                </TouchableOpacity>
-              </View>
-
-              {/* How It Works Section */}
-              <View style={styles.modalSummaryBox}>
-                <Text style={styles.sectionHeaderLabel}>HOW IT WORKS</Text>
-                <Text style={styles.modalSummaryText}>
-                  {selectedAnnotation.telemetry.summary}
-                </Text>
-              </View>
-
-              {/* Key Specs Capsule */}
-              {selectedAnnotation.telemetry.keySpecs ? (
-                <View style={styles.keySpecsBox}>
-                  <View style={styles.keySpecsHeaderRow}>
-                    <Ionicons
-                      name="hardware-chip-outline"
-                      size={13}
-                      color={selectedAnnotation.accentColor}
-                    />
-                    <Text style={styles.sectionHeaderLabel}>KEY SPECS</Text>
-                  </View>
-                  <Text style={styles.keySpecsText}>
-                    {selectedAnnotation.telemetry.keySpecs}
-                  </Text>
-                </View>
-              ) : null}
-
-              {/* Close Button */}
-              <TouchableOpacity
-                style={[
-                  styles.modalDismissBtn,
-                  { backgroundColor: selectedAnnotation.accentColor },
-                ]}
-                onPress={() => setSelectedAnnotation(null)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.modalDismissBtnText}>Got It</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
       </View>
     </SafeAreaView>
   );
@@ -562,12 +521,10 @@ const styles = StyleSheet.create({
   },
   viewportContainer: {
     flex: 1,
-    width: '100%',
-    height: '100%',
     position: 'relative',
     marginHorizontal: 14,
     marginTop: 4,
-    marginBottom: 16,
+    marginBottom: 12,
     borderRadius: 28,
     overflow: 'hidden',
     backgroundColor: '#DD5622',
@@ -580,131 +537,5 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     flex: 1,
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.72)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-    zIndex: 10000,
-  },
-  modalCard: {
-    backgroundColor: '#161624',
-    borderRadius: 24,
-    padding: 20,
-    width: '100%',
-    maxWidth: 400,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.65,
-    shadowRadius: 24,
-    elevation: 24,
-    gap: 14,
-    zIndex: 10001,
-  },
-  modalHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  modalHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  modalIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalHeaderTitleCol: {
-    flex: 1,
-    gap: 2,
-  },
-  modalComponentName: {
-    fontFamily: FontFamilies.sans,
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  modalComponentSubtitle: {
-    fontFamily: FontFamilies.sans,
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 16,
-  },
-  modalCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
-  },
-  sectionHeaderLabel: {
-    fontFamily: FontFamilies.sans,
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontSize: 9,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  modalSummaryBox: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 14,
-    padding: 14,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.studioOrange,
-    gap: 2,
-  },
-  modalSummaryText: {
-    fontFamily: FontFamilies.sans,
-    color: '#E5E7EB',
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '400',
-  },
-  keySpecsBox: {
-    backgroundColor: '#0E0E18',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    gap: 3,
-  },
-  keySpecsHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  keySpecsText: {
-    fontFamily: FontFamilies.sans,
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '500',
-    lineHeight: 17,
-  },
-  modalDismissBtn: {
-    paddingVertical: 12,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
-  },
-  modalDismissBtnText: {
-    fontFamily: FontFamilies.sans,
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.5,
   },
 });

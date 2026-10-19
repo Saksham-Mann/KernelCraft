@@ -101,10 +101,10 @@ jobs:
         with:
           name: security-reports
           path: |
-            app/build/reports/security-audit-report.json
-            app/build/reports/lint-results.xml
-            app/build/reports/lint-results.html
-            app/build/reports/tests/testDebugUnitTest/
+            android-legacy/build/reports/security-audit-report.json
+            android-legacy/build/reports/lint-results.xml
+            android-legacy/build/reports/lint-results.html
+            android-legacy/build/reports/tests/testDebugUnitTest/
           retention-days: 14
 
   # ============================================================================
@@ -119,7 +119,7 @@ jobs:
 
       - name: Validate AndroidManifest Security Directives
         run: |
-          MANIFEST="app/src/main/AndroidManifest.xml"
+          MANIFEST="android-legacy/src/main/AndroidManifest.xml"
           if [ ! -f "$MANIFEST" ]; then
             echo "::error::AndroidManifest.xml not found at $MANIFEST"
             exit 1

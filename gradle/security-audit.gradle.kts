@@ -27,10 +27,10 @@ tasks.register("securityAudit") {
     group = "verification"
     description = "Runs static application security testing (SAST) against OWASP MASVS/MASTG rules."
 
-    val appMainDir = file("src/main")
-    val manifestFile = file("src/main/AndroidManifest.xml")
-    val reportDir = file("build/reports")
-    val reportFile = file("build/reports/security-audit-report.json")
+    val appMainDir = project.file("src/main")
+    val manifestFile = project.file("src/main/AndroidManifest.xml")
+    val reportDir = project.file("build/reports")
+    val reportFile = project.file("build/reports/security-audit-report.json")
 
     doLast {
         val findings = mutableListOf<SecurityFinding>()
@@ -105,9 +105,16 @@ tasks.register("securityAudit") {
         val sensitiveLogPattern = Pattern.compile("Log\\.[vdiwe]\\([^)]*(?:password|secret|token|credential|bearer|apikey)[^)]*\\)", Pattern.CASE_INSENSITIVE)
         val privateKeyPattern = Pattern.compile("-----BEGIN (?:RSA |EC )?PRIVATE KEY-----")
 
-        val filesToScan = fileTree(appMainDir) {
-            include("**/*.kt", "**/*.java", "**/*.xml")
-            exclude("**/res/raw/**", "**/res/drawable/**", "**/res/mipmap*/**")
+        val filesToScan = if (appMainDir.exists()) {
+            appMainDir.walkTopDown().filter { file ->
+                file.isFile &&
+                (file.name.endsWith(".kt") || file.name.endsWith(".java") || file.name.endsWith(".xml")) &&
+                !file.invariantSeparatorsPath.contains("/res/raw/") &&
+                !file.invariantSeparatorsPath.contains("/res/drawable/") &&
+                !file.invariantSeparatorsPath.contains("/res/mipmap")
+            }
+        } else {
+            emptySequence()
         }
 
         filesToScan.forEach { sourceFile ->

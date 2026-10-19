@@ -8,6 +8,9 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Asset } from 'expo-asset';
+import { Image } from 'expo-image';
+import { TEARDOWN_FRAME_ASSETS } from '../src/data/teardownData';
 import Svg, {
   Defs,
   RadialGradient,
@@ -35,6 +38,8 @@ export default function SplashScreen() {
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    let isMounted = true;
+
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -54,12 +59,31 @@ export default function SplashScreen() {
       }),
     ]).start();
 
-    // Auto-advance after 1.8s
-    const timer = setTimeout(() => {
-      router.replace('/teardown');
-    }, 1800);
+    const preloadPromise = (async () => {
+      try {
+        const loadedAssets = await Asset.loadAsync(TEARDOWN_FRAME_ASSETS);
+        const uris = loadedAssets
+          .map((a) => a.localUri || a.uri)
+          .filter((u): u is string => Boolean(u));
+        if (uris.length > 0) {
+          await Image.prefetch(uris, 'memory-disk');
+        }
+      } catch (e) {
+        console.warn('Teardown frame preload warning:', e);
+      }
+    })();
 
-    return () => clearTimeout(timer);
+    const minSplashDelay = new Promise((resolve) => setTimeout(resolve, 1400));
+
+    Promise.all([preloadPromise, minSplashDelay]).then(() => {
+      if (isMounted) {
+        router.replace('/teardown');
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   const handlePress = () => {

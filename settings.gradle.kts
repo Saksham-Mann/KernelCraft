@@ -25,4 +25,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "KernelCraft"
 include(":app")
+project(":app").projectDir = file("android-legacy")
 include(":baselineprofile")
