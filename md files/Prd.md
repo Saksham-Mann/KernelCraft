@@ -1,7 +1,7 @@
-# prd.md — Product Requirements Document
+# prd.md - Product Requirements Document
 
 ## 1. Problem Statement
-Operating systems concepts (memory management, syscalls, the kernel/userspace boundary, scheduling) are taught almost entirely through abstract diagrams and text. Learners rarely connect these abstractions to the physical silicon that executes them. KernelCraft closes that gap by literally taking the user on a visual journey — starting at a screw on a disassembled phone and ending at a syscall interrupting the CPU — so hardware and software feel like one continuous system rather than two disconnected subjects.
+Operating systems concepts (memory management, syscalls, the kernel/userspace boundary, scheduling) are taught almost entirely through abstract diagrams and text. Learners rarely connect these abstractions to the physical silicon that executes them. KernelCraft closes that gap by literally taking the user on a visual journey - starting at a screw on a disassembled phone and ending at a syscall interrupting the CPU - so hardware and software feel like one continuous system rather than two disconnected subjects.
 
 ## 2. Target Audience
 - **Primary:** CS undergraduates / self-taught engineers taking (or having taken) an intro OS course, who understand concepts abstractly but lack physical intuition.
@@ -16,7 +16,7 @@ Assumed device: mid-to-high-end Android phone/tablet, Android 10+ (API 29+), giv
 Landing screen. A simple, colorful menu of learning "tracks" (e.g., "From Chip to Call", "Memory Deep Dive", future tracks). Each track is represented as a solid-color card. Selecting a track launches the scrollytelling experience for that track.
 
 ### 3.2 Hardware Teardown
-A full-bleed ExoPlayer video of a physical device teardown (screws removed, back cover off, motherboard exposed, chip highlighted) that is **scroll-scrubbed** — video playback position is a direct function of scroll offset, not autoplay. The user "unscrews" the phone by scrolling.
+A full-bleed ExoPlayer video of a physical device teardown (screws removed, back cover off, motherboard exposed, chip highlighted) that is **scroll-scrubbed** - video playback position is a direct function of scroll offset, not autoplay. The user "unscrews" the phone by scrolling.
 
 ### 3.3 Dive-In Transition
 A short, GPU-cheap transition (using `graphicsLayer` scale/alpha/blur, NOT a second video) that visually zooms from the highlighted chip on the teardown video into an abstract representation of that chip's internals, bridging Module 3.2 and 3.4.
@@ -28,9 +28,9 @@ A vertically scrolling, parallax-layered diagram of the software stack (Hardware
 An interactive, tap-driven (not scroll-driven) 5-step simulator showing a concrete syscall (e.g., `write()`) crossing from a userspace app, through libc, trapping into the kernel, executing, and returning. State-driven, fully interactive, no video.
 
 ## 4. Non-Goals
-- Not a full OS course replacement — it's a conceptual/visual bridge, not exhaustive.
+- Not a full OS course replacement - it's a conceptual/visual bridge, not exhaustive.
 - Not cross-platform at v1 (Android-native only; no iOS/Flutter/KMP in scope).
-- Not user-generated content — all tracks are authored, not user-built.
+- Not user-generated content - all tracks are authored, not user-built.
 
 ## 5. Success Metrics
 | Metric | Target |

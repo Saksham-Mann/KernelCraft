@@ -12,6 +12,12 @@ export const Colors = {
   studioOrange: '#DD5622',   // Primary energy accent / active border / brand mark
   edgeGlowOrange: '#FF7033', // Subtle edge highlight
 
+  // Elevated Warm Palette Tokens (Splash & Highlights)
+  warmOrangeLight: '#F97316', // Radial gradient center (warm vibrant orange)
+  warmOrangeMid: '#EA580C',   // Radial gradient mid-tone (saturated vermilion)
+  warmOrangeDark: '#C2410C',  // Radial gradient perimeter (deep burnt terracotta)
+  splashBackground: '#EA580C',
+
   // Surfaces & Backgrounds
   surface: '#FFFFFF',        // Pure white bottom sheets & content cards
   darkBackground: '#0D0D12', // Silicon immersion die & dark mode background

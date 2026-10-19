@@ -1,4 +1,4 @@
-# schema.md — State Management Models
+# schema.md - State Management Models
 
 ## 1. Track Content (loaded from bundled JSON manifest)
 
@@ -8,7 +8,7 @@ data class TrackManifest(
     val trackId: String,
     val title: String,
     val subtitle: String,
-    val accentColor: String,          // hex, e.g. "#B0223A" — used for Hub card + Teardown/OS backgrounds
+    val accentColor: String,          // hex, e.g. "#B0223A" - used for Hub card + Teardown/OS backgrounds
     val teardownVideoAsset: String,    // e.g. "raw/teardown_chip01"
     val teardownVideoDurationUs: Long,
     val chipHighlightStillAsset: String,
@@ -94,7 +94,7 @@ data class OsStackUiState(
     val activeLayerIndex: Int = 0
 )
 
-// Syscall Simulator — the core interactive state machine
+// Syscall Simulator - the core interactive state machine
 data class SyscallSimUiState(
     val trackId: String,
     val steps: List<SyscallStepContent> = emptyList(),
@@ -107,7 +107,7 @@ data class SyscallSimUiState(
 }
 ```
 
-## 3. Syscall Simulator — State Flow / Transition Table
+## 3. Syscall Simulator - State Flow / Transition Table
 
 | Step | Name | executionMode | Trigger to enter | Trigger to next |
 |---|---|---|---|---|

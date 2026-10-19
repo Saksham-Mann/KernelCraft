@@ -1,26 +1,56 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, TouchableOpacity, Image } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  TouchableOpacity,
+  Platform,
+} from 'react-native';
 import { useRouter } from 'expo-router';
-import { Colors } from '../src/theme/colors';
-import { Typography } from '../src/theme/typography';
-import { Ionicons } from '@expo/vector-icons';
+import Svg, {
+  Defs,
+  RadialGradient,
+  Stop,
+  Rect,
+  Circle,
+  Line,
+} from 'react-native-svg';
+import { FontFamilies } from '../src/theme/typography';
 
+/**
+ * KernelCraft Initial Splash & Loading Screen
+ *
+ * Implements:
+ * 1. Rich warm gradient: radial-gradient(circle at 50% 35%, #F97316 0%, #EA580C 55%, #C2410C 100%)
+ * 2. Frosted glass container (76px x 76px, blur(12px), rounded 22px) with white geometric silicon die SVG
+ * 3. Clean Title Case "KernelCraft" (700, 32px, tracking -0.02em) and "From Silicon to Syscall" (400, 15px)
+ * 4. Sleek 40px wide horizontal progress pill loading feedback
+ * 5. Removal of outdated version badges and manual tap prompts
+ */
 export default function SplashScreen() {
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.92)).current;
+  const scaleAnim = useRef(new Animated.Value(0.94)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 700,
+        duration: 650,
         useNativeDriver: true,
       }),
       Animated.spring(scaleAnim, {
         toValue: 1,
-        friction: 6,
+        friction: 7,
+        tension: 40,
         useNativeDriver: true,
+      }),
+      Animated.timing(progressAnim, {
+        toValue: 1,
+        duration: 1800,
+        useNativeDriver: false,
       }),
     ]).start();
 
@@ -30,14 +60,45 @@ export default function SplashScreen() {
     }, 1800);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [router]);
 
   const handlePress = () => {
     router.replace('/teardown');
   };
 
   return (
-    <TouchableOpacity activeOpacity={1} style={styles.container} onPress={handlePress}>
+    <TouchableOpacity
+      activeOpacity={1}
+      style={styles.container}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel="KernelCraft loading screen"
+    >
+      {/* Elevated Warm Radial Gradient Background */}
+      <Svg
+        height="100%"
+        width="100%"
+        style={StyleSheet.absoluteFill}
+        preserveAspectRatio="none"
+      >
+        <Defs>
+          <RadialGradient
+            id="warmSplashGradient"
+            cx="50%"
+            cy="35%"
+            r="75%"
+            fx="50%"
+            fy="35%"
+          >
+            <Stop offset="0%" stopColor="#F97316" stopOpacity="1" />
+            <Stop offset="55%" stopColor="#EA580C" stopOpacity="1" />
+            <Stop offset="100%" stopColor="#C2410C" stopOpacity="1" />
+          </RadialGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#warmSplashGradient)" />
+      </Svg>
+
+      {/* Main Brand Content */}
       <Animated.View
         style={[
           styles.content,
@@ -47,33 +108,75 @@ export default function SplashScreen() {
           },
         ]}
       >
-        {/* Brand Icon Mark */}
-        <View style={styles.logoContainer}>
-          <Image
-            source={require('../assets/chip_highlight_still.webp')}
-            style={styles.logoImage}
-            resizeMode="cover"
-          />
-          <View style={styles.logoBadge}>
-            <Ionicons name="hardware-chip-outline" size={24} color={Colors.textWhite} />
-          </View>
+        {/* Brand Icon: Frosted Glass Container with Geometric Silicon Die Emblem */}
+        <View style={styles.frostedGlassContainer}>
+          <Svg width={38} height={38} viewBox="0 0 38 38" fill="none">
+            {/* Outer Silicon Substrate Package */}
+            <Rect
+              x={7.5}
+              y={7.5}
+              width={23}
+              height={23}
+              rx={4.5}
+              stroke="#FFFFFF"
+              strokeWidth={2}
+            />
+
+            {/* Multi-layered Internal Processing Core Quad */}
+            <Rect x={11} y={11} width={6} height={6} rx={1.5} fill="#FFFFFF" />
+            <Rect x={21} y={11} width={6} height={6} rx={1.5} fill="#FFFFFF" />
+            <Rect x={11} y={21} width={6} height={6} rx={1.5} fill="#FFFFFF" />
+            <Rect x={21} y={21} width={6} height={6} rx={1.5} fill="#FFFFFF" />
+
+            {/* Central Interconnect Bus Nucleus */}
+            <Circle cx={19} cy={19} r={1.8} fill="#FFFFFF" />
+
+            {/* Symmetrical External Bus Pins */}
+            {/* Top Pins */}
+            <Line x1={14} y1={2} x2={14} y2={7.5} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+            <Line x1={19} y1={1.5} x2={19} y2={7.5} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+            <Line x1={24} y1={2} x2={24} y2={7.5} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+
+            {/* Bottom Pins */}
+            <Line x1={14} y1={30.5} x2={14} y2={36} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+            <Line x1={19} y1={30.5} x2={19} y2={36.5} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+            <Line x1={24} y1={30.5} x2={24} y2={36} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+
+            {/* Left Pins */}
+            <Line x1={2} y1={14} x2={7.5} y2={14} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+            <Line x1={1.5} y1={19} x2={7.5} y2={19} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+            <Line x1={2} y1={24} x2={7.5} y2={24} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+
+            {/* Right Pins */}
+            <Line x1={30.5} y1={14} x2={36} y2={14} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+            <Line x1={30.5} y1={19} x2={36.5} y2={19} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+            <Line x1={30.5} y1={24} x2={36} y2={24} stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" />
+          </Svg>
         </View>
 
-        {/* Title and Tagline */}
-        <Text style={styles.title}>KERNELCRAFT</Text>
-        <Text style={styles.subtitle}>FROM SILICON TO SYSCALL</Text>
+        {/* Clean Balanced Title Case */}
+        <Text style={styles.title}>KernelCraft</Text>
 
-        <View style={styles.badgeRow}>
-          <View style={styles.versionBadge}>
-            <Text style={styles.versionText}>v1.0.0 • HARDWARE & OS EXPLORER</Text>
-          </View>
-        </View>
-
-        <View style={styles.bottomPrompt}>
-          <Text style={styles.promptText}>Tap to start exploration</Text>
-          <Ionicons name="arrow-forward" size={16} color="rgba(255, 255, 255, 0.7)" />
-        </View>
+        {/* Regular Weight Translucent Subtitle */}
+        <Text style={styles.subtitle}>From Silicon to Syscall</Text>
       </Animated.View>
+
+      {/* Sleek Minimalist 40px Horizontal Progress Pill Loading Feedback */}
+      <View style={styles.loadingContainer}>
+        <View style={styles.loadingTrack}>
+          <Animated.View
+            style={[
+              styles.loadingFill,
+              {
+                width: progressAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 40],
+                }),
+              },
+            ]}
+          />
+        </View>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -81,80 +184,79 @@ export default function SplashScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.studioOrange,
+    backgroundColor: '#EA580C',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+    position: 'relative',
+    ...(Platform.OS === 'web'
+      ? ({
+          background:
+            'radial-gradient(circle at 50% 35%, #F97316 0%, #EA580C 55%, #C2410C 100%)',
+        } as any)
+      : {}),
   },
   content: {
     alignItems: 'center',
     width: '100%',
     maxWidth: 380,
+    marginBottom: 40,
   },
-  logoContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+  frostedGlassContainer: {
+    width: 76,
+    height: 76,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
-    position: 'relative',
-  },
-  logoImage: {
-    width: '100%',
-    height: '100%',
-    opacity: 0.85,
-  },
-  logoBadge: {
-    position: 'absolute',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    shadowColor: '#C2410C',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 8,
+    ...(Platform.OS === 'web'
+      ? ({
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+        } as any)
+      : {}),
   },
   title: {
-    ...Typography.display,
-    color: Colors.textWhite,
-    letterSpacing: 2,
+    fontFamily: FontFamilies.sans,
+    fontSize: 32,
+    fontWeight: '700',
+    letterSpacing: -0.64, // -0.02em * 32px tight tracking
+    color: '#FFFFFF',
     textAlign: 'center',
   },
   subtitle: {
-    ...Typography.bodySmall,
-    color: 'rgba(255, 255, 255, 0.9)',
-    letterSpacing: 3,
-    fontWeight: '700',
-    marginTop: 6,
+    fontFamily: FontFamilies.sans,
+    fontSize: 15,
+    fontWeight: '400',
+    color: 'rgba(255, 255, 255, 0.85)',
     textAlign: 'center',
+    marginTop: 8,
+    letterSpacing: 0.2,
   },
-  badgeRow: {
-    marginTop: 18,
-  },
-  versionBadge: {
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-  },
-  versionText: {
-    ...Typography.tag,
-    color: Colors.textWhite,
-    fontSize: 10,
-  },
-  bottomPrompt: {
-    flexDirection: 'row',
+  loadingContainer: {
+    position: 'absolute',
+    bottom: 48,
     alignItems: 'center',
-    gap: 6,
-    marginTop: 60,
+    justifyContent: 'center',
   },
-  promptText: {
-    ...Typography.bodySmall,
-    color: 'rgba(255, 255, 255, 0.75)',
-    fontSize: 12,
+  loadingTrack: {
+    width: 40,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    overflow: 'hidden',
+  },
+  loadingFill: {
+    height: '100%',
+    borderRadius: 1.5,
+    backgroundColor: '#FFFFFF',
   },
 });
