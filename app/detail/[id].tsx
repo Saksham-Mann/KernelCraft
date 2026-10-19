@@ -75,25 +75,31 @@ export default function ComponentDetailScreen() {
           <View style={styles.specsCard}>
             <Text style={styles.sectionHeader}>TECHNICAL SPECIFICATIONS</Text>
 
-            <View style={styles.specRow}>
-              <Text style={styles.specKey}>Architecture</Text>
-              <Text style={styles.specVal}>{component.telemetry.architecture}</Text>
-            </View>
+            {component.telemetry.architecture ? (
+              <View style={styles.specRow}>
+                <Text style={styles.specKey}>Architecture</Text>
+                <Text style={styles.specVal}>{component.telemetry.architecture}</Text>
+              </View>
+            ) : null}
 
-            <View style={styles.specRow}>
-              <Text style={styles.specKey}>Bus & Interface</Text>
-              <Text style={styles.specVal}>{component.telemetry.interfaceSpec}</Text>
-            </View>
+            {component.telemetry.interfaceSpec ? (
+              <View style={styles.specRow}>
+                <Text style={styles.specKey}>Bus & Interface</Text>
+                <Text style={styles.specVal}>{component.telemetry.interfaceSpec}</Text>
+              </View>
+            ) : null}
 
-            <View style={styles.specRow}>
-              <Text style={styles.specKey}>Key Features</Text>
-              {component.telemetry.keyFeatures.map((feat, i) => (
-                <View key={i} style={styles.featureBulletRow}>
-                  <Ionicons name="checkmark-circle" size={14} color={component.accentColor} />
-                  <Text style={styles.featureBulletText}>{feat}</Text>
-                </View>
-              ))}
-            </View>
+            {component.telemetry.keyFeatures && component.telemetry.keyFeatures.length > 0 ? (
+              <View style={styles.specRow}>
+                <Text style={styles.specKey}>Key Features</Text>
+                {component.telemetry.keyFeatures.map((feat, i) => (
+                  <View key={i} style={styles.featureBulletRow}>
+                    <Ionicons name="checkmark-circle" size={14} color={component.accentColor} />
+                    <Text style={styles.featureBulletText}>{feat}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
 
           {/* Primary Action Button */}

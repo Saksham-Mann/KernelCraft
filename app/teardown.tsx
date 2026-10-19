@@ -7,12 +7,14 @@ import {
   TouchableOpacity,
   Platform,
   Animated,
-  GestureResponderEvent,
+  PanResponder,
+  Dimensions,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import { Image } from 'expo-image';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors } from '../src/theme/colors';
-import { Typography } from '../src/theme/typography';
+import { Typography, FontFamilies } from '../src/theme/typography';
 import {
   TEARDOWN_FRAME_ASSETS,
   TOTAL_FRAMES,
@@ -20,179 +22,260 @@ import {
   TeardownAnnotation,
 } from '../src/data/teardownData';
 import { AnnotationOverlay } from '../src/components/AnnotationOverlay';
+import { KernelStackExplorerView } from './kernel';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
+/**
+ * Hardware Teardown Screen with Seamless OS Scroll Transition
+ *
+ * Implements:
+ * 1. Clean header with ONLY "HARDWARE TEARDOWN" (Plus Jakarta Sans, no subtitles)
+ * 2. High-performance PanResponder drag scrubbing for Mobile (iOS/Android) and Web
+ * 3. Stable component inspection pins with generous touch hitboxes
+ * 4. Front AMOLED display holds comfortably (+1 extra dwell step) before transition
+ * 5. Fluid, continuous bidirectional transition between Teardown and OS layer without black buffer glitches
+ */
+// Sequence Step Constants:
+// 60 teardown frames (0..58) + 1 extra dwell step on frame 59 (steps 59..60)
+const TOTAL_SEQUENCE_STEPS = TOTAL_FRAMES + 1; // 61 total sequence steps (0..60)
+const FRAME_59_PROGRESS = (TOTAL_FRAMES - 1) / (TOTAL_SEQUENCE_STEPS - 1); // 59 / 60 ≈ 0.9833
+
 export default function TeardownScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
 
-  const [progress, setProgress] = useState(0.0);
+  // Initial stage / progress check
+  const startAtEnd = params?.initialProgress === '1' || params?.stage === 'os';
+  const initialStageIsOS = params?.stage === 'os';
+  const [activeSection, setActiveSection] = useState<'TEARDOWN' | 'OS'>(
+    initialStageIsOS ? 'OS' : 'TEARDOWN'
+  );
+
+  // Target progress (user scroll/drag intent) and Interpolated progress (smooth fluid lerp)
+  // When starting at end of teardown, land at frame 59 (flat front display)
+  const initialProgressVal = startAtEnd ? 1.0 : 0.0;
+  const targetProgress = useRef(initialProgressVal);
+  const interpolatedProgress = useRef(initialProgressVal);
+  const [progress, setProgress] = useState(initialProgressVal);
+
   const [selectedAnnotation, setSelectedAnnotation] = useState<TeardownAnnotation | null>(null);
-  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [viewportSize, setViewportSize] = useState(() => {
+    const { width, height } = Dimensions.get('window');
+    return {
+      width: Math.min(width - 28, 412),
+      height: Math.min(height - 120, 780),
+    };
+  });
 
-  const progressRef = useRef(0.0);
-  progressRef.current = progress;
+  const activeSectionRef = useRef<'TEARDOWN' | 'OS'>(activeSection);
+  activeSectionRef.current = activeSection;
 
-  // Zoom animation for phone screen container when "Dive In" is clicked
-  const zoomScale = useRef(new Animated.Value(1)).current;
-  const zoomOpacity = useRef(new Animated.Value(1)).current;
+  const selectedAnnotationRef = useRef<TeardownAnnotation | null>(null);
+  selectedAnnotationRef.current = selectedAnnotation;
 
-  // Apply clamped progress bidirectionally with no latching
-  const applyProgress = useCallback((newProgress: number) => {
-    const clamped = Math.max(0, Math.min(1, newProgress));
-    setProgress(clamped);
+  // Transition animation between Teardown (0) and OS Section (1)
+  const transitionAnim = useRef(new Animated.Value(initialStageIsOS ? 1 : 0)).current;
+  const isTransitioningRef = useRef(false);
+  const overscrollAccumulator = useRef(0);
 
-    // Auto-dismiss modal if scrolled far away from component range
-    setSelectedAnnotation((prev) => {
-      if (prev && (clamped < prev.startProgress - 0.08 || clamped > prev.endProgress + 0.08)) {
-        return null;
-      }
-      return prev;
-    });
-  }, []);
-
-  // Screen focus effect: reset zoom/opacity and attach wheel listener ONLY while teardown is focused
-  useFocusEffect(
-    useCallback(() => {
-      zoomScale.setValue(1);
-      zoomOpacity.setValue(1);
-
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        const handleWheel = (e: WheelEvent) => {
-          e.preventDefault();
-          // Dampen wheel sensitivity significantly so user scrolls deliberately
-          const rawDelta = e.deltaY;
-          const clampedDelta = Math.max(-100, Math.min(100, rawDelta));
-          const step = clampedDelta * 0.00022;
-
-          const currentP = progressRef.current;
-          const nextP = Math.max(0, Math.min(1, currentP + step));
-
-          if (nextP !== currentP) {
-            progressRef.current = nextP;
-            applyProgress(nextP);
-          }
-        };
-
-        window.addEventListener('wheel', handleWheel, { passive: false });
-        return () => {
-          window.removeEventListener('wheel', handleWheel);
-        };
-      }
-    }, [zoomScale, zoomOpacity, applyProgress])
-  );
-
-  // Fade and pulse animation for the single centered "Dive In" button
-  const diveInFadeAnim = useRef(new Animated.Value(0)).current;
-  const diveInPulseAnim = useRef(new Animated.Value(1)).current;
-
-  // Calculate current frame index (0..59)
-  const currentFrameIndex = Math.min(
-    TOTAL_FRAMES - 1,
-    Math.max(0, Math.round(progress * (TOTAL_FRAMES - 1)))
-  );
-
-  // Final assembled front screen reached condition
-  const isFinalFrontScreen = currentFrameIndex >= TOTAL_FRAMES - 1 || progress >= 0.95;
-
-  // Trigger fade in / out of Dive In button based on final frame condition
+  // Continuous smooth physics loop using requestAnimationFrame (60fps/120fps fluid lerp)
   useEffect(() => {
-    if (isFinalFrontScreen) {
-      Animated.timing(diveInFadeAnim, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      }).start();
+    if (activeSection !== 'TEARDOWN') return;
 
-      // Start gentle breathing pulse
-      const pulseLoop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(diveInPulseAnim, {
-            toValue: 1.06,
-            duration: 850,
-            useNativeDriver: true,
-          }),
-          Animated.timing(diveInPulseAnim, {
-            toValue: 1,
-            duration: 850,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      pulseLoop.start();
-      return () => pulseLoop.stop();
-    } else {
-      Animated.timing(diveInFadeAnim, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [isFinalFrontScreen]);
+    let rafId: number;
+    const updatePhysics = () => {
+      const target = targetProgress.current;
+      const current = interpolatedProgress.current;
+      const diff = target - current;
 
+      if (Math.abs(diff) > 0.0003) {
+        // Smooth exponential damping (responsive & fluid momentum)
+        const next = current + diff * 0.18;
+        interpolatedProgress.current = next;
+        setProgress(next);
+      } else if (current !== target) {
+        interpolatedProgress.current = target;
+        setProgress(target);
+      }
 
+      rafId = requestAnimationFrame(updatePhysics);
+    };
 
-  // Touch handlers for mobile / tablet drag scrubbing (bidirectional)
-  const touchStartY = useRef<number | null>(null);
-  const touchStartProgress = useRef<number>(0);
-  const hasMovedSignificantly = useRef<boolean>(false);
+    rafId = requestAnimationFrame(updatePhysics);
+    return () => cancelAnimationFrame(rafId);
+  }, [activeSection]);
 
-  const handleTouchStart = (e: GestureResponderEvent) => {
-    touchStartY.current = e.nativeEvent.pageY;
-    touchStartProgress.current = progressRef.current;
-    hasMovedSignificantly.current = false;
-  };
+  // Seamless transition into OS Section (smooth zoom into the glass display)
+  const transitionToOS = useCallback(() => {
+    if (isTransitioningRef.current) return;
+    isTransitioningRef.current = true;
 
-  const handleTouchMove = (e: GestureResponderEvent) => {
-    if (touchStartY.current === null) return;
-    const deltaY = touchStartY.current - e.nativeEvent.pageY;
-
-    if (Math.abs(deltaY) > 6) {
-      hasMovedSignificantly.current = true;
-    }
-
-    const touchSensitivity = 0.0007;
-    const nextP = Math.max(0, Math.min(1, touchStartProgress.current + deltaY * touchSensitivity));
-
-    if (nextP !== progressRef.current) {
-      progressRef.current = nextP;
-      applyProgress(nextP);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    touchStartY.current = null;
-  };
-
-  // Dive In Click Handler: quick zoom-in scale animation then navigates directly to OS layer
-  const handleDiveIn = () => {
     if (Platform.OS !== 'web') {
       try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } catch (e) {}
     }
 
-    Animated.parallel([
-      Animated.timing(zoomScale, {
-        toValue: 3.2,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.timing(zoomOpacity, {
-        toValue: 0,
-        duration: 380,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      router.push('/kernel');
-      setTimeout(() => {
-        zoomScale.setValue(1);
-        zoomOpacity.setValue(1);
-      }, 500);
+    Animated.timing(transitionAnim, {
+      toValue: 1,
+      duration: 350,
+      useNativeDriver: true,
+    }).start(() => {
+      setActiveSection('OS');
+      isTransitioningRef.current = false;
     });
-  };
+  }, [transitionAnim]);
 
-  // Click any hardware tag -> open clean popup modal
+  // Seamless transition back up to Hardware Teardown (at final assembled front frame 59)
+  const transitionToTeardown = useCallback(() => {
+    if (isTransitioningRef.current) return;
+    isTransitioningRef.current = true;
+
+    // Reset teardown position to the fully assembled front screen (frame 59 dwell)
+    targetProgress.current = 1.0;
+    interpolatedProgress.current = 1.0;
+    setProgress(1.0);
+    setActiveSection('TEARDOWN');
+    overscrollAccumulator.current = 0;
+
+    if (Platform.OS !== 'web') {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (e) {}
+    }
+
+    Animated.timing(transitionAnim, {
+      toValue: 0,
+      duration: 320,
+      useNativeDriver: true,
+    }).start(() => {
+      isTransitioningRef.current = false;
+    });
+  }, [transitionAnim]);
+
+  // Wheel listener for Web: Smooth scrub through 60 frames and seamless handoff into OS
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const handleWheel = (e: WheelEvent) => {
+        if (selectedAnnotationRef.current) {
+          // Do not scroll background if a detail modal is open
+          return;
+        }
+
+        if (activeSectionRef.current === 'TEARDOWN') {
+          e.preventDefault();
+
+          const rawDelta = e.deltaY;
+          const clampedDelta = Math.max(-80, Math.min(80, rawDelta));
+          // Calibrated wheel sensitivity for natural, smooth pacing
+          const step = clampedDelta * 0.00035;
+
+          const currentTarget = targetProgress.current;
+          const nextTarget = currentTarget + step;
+
+          if (step > 0 && currentTarget >= 0.995 && interpolatedProgress.current >= 0.985) {
+            // Reached the front screen dwell step -> downward scroll triggers OS transition
+            overscrollAccumulator.current += step;
+            if (overscrollAccumulator.current >= 0.003) {
+              overscrollAccumulator.current = 0;
+              transitionToOS();
+              return;
+            }
+          } else if (step < 0) {
+            // Reversing upward: clear overscroll and scrub frames in reverse immediately
+            overscrollAccumulator.current = 0;
+            const clamped = Math.max(0, Math.min(1.0, nextTarget));
+            targetProgress.current = clamped;
+          } else {
+            const clamped = Math.max(0, Math.min(1.0, nextTarget));
+            targetProgress.current = clamped;
+          }
+        }
+      };
+
+      window.addEventListener('wheel', handleWheel, { passive: false });
+      return () => {
+        window.removeEventListener('wheel', handleWheel);
+      };
+    }
+  }, [transitionToOS]);
+
+  // PanResponder: Native touch & drag gesture system for Mobile (iOS/Android) and Web
+  const touchStartProgress = useRef(0);
+  const isDragging = useRef(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        if (activeSectionRef.current !== 'TEARDOWN' || selectedAnnotationRef.current) {
+          return false;
+        }
+        return Math.abs(gestureState.dy) > 4;
+      },
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+        if (activeSectionRef.current !== 'TEARDOWN' || selectedAnnotationRef.current) {
+          return false;
+        }
+        return Math.abs(gestureState.dy) > 4;
+      },
+      onPanResponderGrant: () => {
+        isDragging.current = true;
+        touchStartProgress.current = targetProgress.current;
+        overscrollAccumulator.current = 0;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (activeSectionRef.current !== 'TEARDOWN' || selectedAnnotationRef.current) return;
+
+        // Invert dy: dragging finger upward (negative dy) scrubs forward (increases progress)
+        // Dragging finger downward (positive dy) scrubs backward (decreases progress)
+        const travelDistance = 500; // Calibrated travel distance for 60 frames
+        const deltaProgress = -gestureState.dy / travelDistance;
+        const nextTarget = touchStartProgress.current + deltaProgress;
+
+        if (nextTarget > 1.01) {
+          overscrollAccumulator.current += 0.005;
+          if (overscrollAccumulator.current >= 0.01) {
+            overscrollAccumulator.current = 0;
+            transitionToOS();
+          }
+        } else if (nextTarget < 0) {
+          targetProgress.current = 0;
+        } else {
+          targetProgress.current = Math.min(1.0, nextTarget);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        isDragging.current = false;
+        if (targetProgress.current >= 0.99 && gestureState.vy < -0.15) {
+          // Fling upward at end transitions to OS
+          transitionToOS();
+        } else if (targetProgress.current > 1.0) {
+          transitionToOS();
+        } else {
+          targetProgress.current = Math.max(0, Math.min(1.0, targetProgress.current));
+        }
+      },
+      onPanResponderTerminate: () => {
+        isDragging.current = false;
+        targetProgress.current = Math.max(0, Math.min(1.0, targetProgress.current));
+      },
+    })
+  ).current;
+
+  // Calculate current sequence step strictly clamped to 0..60 (60 frames + 1 extra dwell step)
+  const currentStepIndex = Math.min(
+    TOTAL_SEQUENCE_STEPS - 1,
+    Math.max(0, Math.round(progress * (TOTAL_SEQUENCE_STEPS - 1)))
+  );
+
+  // Clamped hardware frame asset index:
+  // Steps 0..58 map to frames 0..58. Steps 59 & 60 both hold frame 59 (flat front display +1 extra dwell step).
+  const currentFrameIndex = Math.min(TOTAL_FRAMES - 1, currentStepIndex);
+
+  // Click any hardware pin or badge -> open clean modal
   const handleSelectAnnotation = (ann: TeardownAnnotation) => {
     if (Platform.OS !== 'web') {
       try {
@@ -202,222 +285,224 @@ export default function TeardownScreen() {
     setSelectedAnnotation(ann);
   };
 
+  // Auto-dismiss modal if scrolled away from component visibility range
+  useEffect(() => {
+    if (selectedAnnotation) {
+      if (
+        progress < selectedAnnotation.startProgress - 0.08 ||
+        progress > selectedAnnotation.endProgress + 0.08
+      ) {
+        setSelectedAnnotation(null);
+      }
+    }
+  }, [progress, selectedAnnotation]);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View
-        style={styles.container}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        <View style={styles.teardownWrapper}>
-            {/* Top Bar Header */}
-            <View style={styles.topBar}>
-              <TouchableOpacity
-                style={styles.circleIconButton}
-                onPress={() => router.replace('/')}
-                accessibilityLabel="Back to splash"
-              >
-                <Ionicons name="chevron-back" size={20} color={Colors.textWhite} />
-              </TouchableOpacity>
+      <View style={styles.container}>
+        {/* SECTION 1: HARDWARE TEARDOWN VIEW */}
+        <Animated.View
+          pointerEvents={activeSection === 'TEARDOWN' ? 'auto' : 'none'}
+          style={[
+            styles.teardownWrapper,
+            {
+              opacity: transitionAnim.interpolate({
+                inputRange: [0, 0.75, 1],
+                outputRange: [1, 0.2, 0],
+              }),
+              transform: [
+                {
+                  scale: transitionAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [1, 1.1],
+                  }),
+                },
+              ],
+            },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          {/* Top Bar Header (Clean title ONLY, vector chevron back button) */}
+          <View style={styles.topBar}>
+            <TouchableOpacity
+              style={styles.circleIconButton}
+              onPress={() => router.replace('/')}
+              accessibilityRole="button"
+              accessibilityLabel="Back to splash"
+            >
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                <Path
+                  d="M15 19L8 12L15 5"
+                  stroke="#FFFFFF"
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </Svg>
+            </TouchableOpacity>
 
-              <View style={styles.topBarCenter}>
-                <Text style={styles.screenHeaderTitle}>HARDWARE TEARDOWN</Text>
-                <Text style={styles.screenHeaderSubtitle}>
-                  {isFinalFrontScreen
-                    ? 'FRONT DISPLAY READY • TAP DIVE IN'
-                    : progress < 0.2
-                    ? 'CLOSED CHASSIS • SCROLL DOWN'
-                    : progress < 0.72
-                    ? 'TAP ANY COMPONENT TO INSPECT'
-                    : 'REASSEMBLING CHASSIS'}
+            <View style={styles.topBarCenter}>
+              <Text style={styles.screenHeaderTitle}>HARDWARE TEARDOWN</Text>
+            </View>
+
+            {/* Spacer to keep center title balanced */}
+            <View style={{ width: 38, height: 38 }} />
+          </View>
+
+          {/* Main Phone Viewport (Fills primary vertical space) */}
+          <View
+            style={styles.viewportContainer}
+            onLayout={(e) => {
+              const { width, height } = e.nativeEvent.layout;
+              setViewportSize({ width, height });
+            }}
+          >
+            {/* Full Lifecycle Teardown Image Frame (60 frames) */}
+            <Image
+              source={TEARDOWN_FRAME_ASSETS[currentFrameIndex]}
+              style={styles.frameImage}
+              contentFit="contain"
+              transition={0}
+              priority="high"
+            />
+
+            {/* Floating Hardware Component Hotspots & Pill Tags */}
+            <AnnotationOverlay
+              annotations={TEARDOWN_ANNOTATIONS}
+              progress={progress}
+              containerWidth={viewportSize.width}
+              containerHeight={viewportSize.height}
+              onSelectAnnotation={handleSelectAnnotation}
+              selectedId={selectedAnnotation?.id}
+            />
+          </View>
+        </Animated.View>
+
+        {/* SECTION 2: OS SOFTWARE LAYER VIEW (Continuously Coordinated) */}
+        <Animated.View
+          pointerEvents={activeSection === 'OS' ? 'auto' : 'none'}
+          style={[
+            StyleSheet.absoluteFill,
+            styles.osSectionWrapper,
+            {
+              opacity: transitionAnim.interpolate({
+                inputRange: [0, 0.25, 1],
+                outputRange: [0, 0.4, 1],
+              }),
+              transform: [
+                {
+                  translateY: transitionAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [35, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <KernelStackExplorerView
+            isActive={activeSection === 'OS'}
+            onScrollUpToTeardown={transitionToTeardown}
+          />
+        </Animated.View>
+
+        {/* Simple, Fun & Accessible Component Details Modal */}
+        {selectedAnnotation && (
+          <View style={styles.modalBackdrop}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => setSelectedAnnotation(null)}
+            />
+            <View style={styles.modalCard}>
+              {/* Modal Header */}
+              <View style={styles.modalHeaderRow}>
+                <View style={styles.modalHeaderLeft}>
+                  <View
+                    style={[
+                      styles.modalIconBox,
+                      { backgroundColor: selectedAnnotation.accentColor },
+                    ]}
+                  >
+                    <Ionicons
+                      name={selectedAnnotation.icon as any}
+                      size={20}
+                      color="#FFFFFF"
+                    />
+                  </View>
+                  <View style={styles.modalHeaderTitleCol}>
+                    <Text style={styles.modalComponentName}>
+                      {selectedAnnotation.telemetry.technicalName}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.modalComponentSubtitle,
+                        { color: selectedAnnotation.accentColor },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {selectedAnnotation.telemetry.subtitle}
+                    </Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={() => setSelectedAnnotation(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close component details"
+                >
+                  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                    <Path
+                      d="M18 6L6 18M6 6l12 12"
+                      stroke="#FFFFFF"
+                      strokeWidth={2.2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </Svg>
+                </TouchableOpacity>
+              </View>
+
+              {/* How It Works Section */}
+              <View style={styles.modalSummaryBox}>
+                <Text style={styles.sectionHeaderLabel}>HOW IT WORKS</Text>
+                <Text style={styles.modalSummaryText}>
+                  {selectedAnnotation.telemetry.summary}
                 </Text>
               </View>
 
+              {/* Key Specs Capsule */}
+              {selectedAnnotation.telemetry.keySpecs ? (
+                <View style={styles.keySpecsBox}>
+                  <View style={styles.keySpecsHeaderRow}>
+                    <Ionicons
+                      name="hardware-chip-outline"
+                      size={13}
+                      color={selectedAnnotation.accentColor}
+                    />
+                    <Text style={styles.sectionHeaderLabel}>KEY SPECS</Text>
+                  </View>
+                  <Text style={styles.keySpecsText}>
+                    {selectedAnnotation.telemetry.keySpecs}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Close Button */}
               <TouchableOpacity
-                style={styles.circleIconButton}
-                onPress={() => {
-                  progressRef.current = 0;
-                  applyProgress(0);
-                }}
-                accessibilityLabel="Reset to beginning"
+                style={[
+                  styles.modalDismissBtn,
+                  { backgroundColor: selectedAnnotation.accentColor },
+                ]}
+                onPress={() => setSelectedAnnotation(null)}
+                activeOpacity={0.85}
               >
-                <Ionicons name="refresh" size={18} color={Colors.textWhite} />
+                <Text style={styles.modalDismissBtnText}>Got It</Text>
               </TouchableOpacity>
             </View>
-
-            {/* Main Phone Viewport (Fills primary vertical space) */}
-            <Animated.View
-              style={[
-                styles.viewportContainer,
-                {
-                  transform: [{ scale: zoomScale }],
-                  opacity: zoomOpacity,
-                },
-              ]}
-              onLayout={(e) => {
-                const { width, height } = e.nativeEvent.layout;
-                setViewportSize({ width, height });
-              }}
-            >
-              {/* Full Lifecycle Teardown Image Frame (60 frames) */}
-              <Image
-                source={TEARDOWN_FRAME_ASSETS[currentFrameIndex]}
-                style={styles.frameImage}
-                contentFit="contain"
-                transition={20}
-              />
-
-              {/* Floating Hardware Component Hotspots & Pill Tags */}
-              <AnnotationOverlay
-                annotations={TEARDOWN_ANNOTATIONS}
-                progress={progress}
-                containerWidth={viewportSize.width}
-                containerHeight={viewportSize.height}
-                onSelectAnnotation={handleSelectAnnotation}
-                selectedId={selectedAnnotation?.id}
-              />
-
-              {/* ONLY ONE Single "Dive In: Explore the OS" Button (Centered on front screen) */}
-              <Animated.View
-                style={[
-                  styles.centerDiveInWrapper,
-                  {
-                    opacity: diveInFadeAnim,
-                    transform: [{ scale: diveInPulseAnim }],
-                  },
-                ]}
-                pointerEvents={isFinalFrontScreen ? 'auto' : 'none'}
-              >
-                <TouchableOpacity
-                  style={styles.centerDiveInButton}
-                  onPress={handleDiveIn}
-                  activeOpacity={0.85}
-                  accessibilityLabel="Dive In: Explore the OS"
-                >
-                  <View style={styles.centerDiveInIconGlow}>
-                    <Ionicons name="sparkles" size={20} color="#FFFFFF" />
-                  </View>
-                  <Text style={styles.centerDiveInText}>Dive In: Explore the OS</Text>
-                  <Ionicons name="arrow-forward-circle" size={26} color="#FFFFFF" />
-                </TouchableOpacity>
-              </Animated.View>
-
-              {/* Gentle Initial Scroll Prompt */}
-              {progress < 0.04 && (
-                <View style={styles.scrollPromptBadge} pointerEvents="none">
-                  <Ionicons name="chevron-down" size={18} color="rgba(255, 255, 255, 0.9)" />
-                  <Text style={styles.scrollPromptText}>Scroll down to disassemble</Text>
-                </View>
-              )}
-
-              {/* Reverse Scroll Indicator when reaching front screen */}
-              {isFinalFrontScreen && (
-                <View style={styles.reversePromptBadge} pointerEvents="none">
-                  <Ionicons name="chevron-up" size={14} color="rgba(255, 255, 255, 0.7)" />
-                  <Text style={styles.reversePromptText}>Scroll up to reverse</Text>
-                </View>
-              )}
-            </Animated.View>
-
-            {/* Clean Component Details Popup Modal (Opens when ANY tag is clicked) */}
-            {selectedAnnotation && (
-              <View style={styles.modalBackdrop}>
-                <TouchableOpacity
-                  style={StyleSheet.absoluteFill}
-                  activeOpacity={1}
-                  onPress={() => setSelectedAnnotation(null)}
-                />
-                <View style={styles.modalCard}>
-                  {/* Modal Header */}
-                  <View style={styles.modalHeaderRow}>
-                    <View style={styles.modalHeaderLeft}>
-                      <View
-                        style={[
-                          styles.modalIconBox,
-                          { backgroundColor: selectedAnnotation.accentColor },
-                        ]}
-                      >
-                        <Ionicons
-                          name={selectedAnnotation.icon as any}
-                          size={22}
-                          color="#FFFFFF"
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.modalComponentName}>
-                          {selectedAnnotation.telemetry.technicalName}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.modalComponentSubtitle,
-                            { color: selectedAnnotation.accentColor },
-                          ]}
-                        >
-                          {selectedAnnotation.telemetry.subtitle}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <TouchableOpacity
-                      style={styles.modalCloseButton}
-                      onPress={() => setSelectedAnnotation(null)}
-                      accessibilityLabel="Close component details"
-                    >
-                      <Ionicons name="close" size={20} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Summary */}
-                  <View style={styles.modalSummaryBox}>
-                    <Text style={styles.modalSummaryText}>
-                      {selectedAnnotation.telemetry.summary}
-                    </Text>
-                  </View>
-
-                  {/* Specifications Grid */}
-                  <View style={styles.specsGrid}>
-                    <View style={styles.specBox}>
-                      <Text style={styles.specLabel}>ARCHITECTURE</Text>
-                      <Text style={styles.specValue}>
-                        {selectedAnnotation.telemetry.architecture}
-                      </Text>
-                    </View>
-                    <View style={styles.specBox}>
-                      <Text style={styles.specLabel}>BUS / INTERFACE</Text>
-                      <Text style={styles.specValue}>
-                        {selectedAnnotation.telemetry.interfaceSpec}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Key Features Bullets */}
-                  <View style={styles.featuresList}>
-                    <Text style={styles.featuresHeader}>ENGINEERING CAPABILITIES:</Text>
-                    {selectedAnnotation.telemetry.keyFeatures.map((feat, i) => (
-                      <View key={i} style={styles.featureRow}>
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={15}
-                          color={selectedAnnotation.accentColor}
-                        />
-                        <Text style={styles.featureText}>{feat}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  {/* Close / Dismiss Button */}
-                  <TouchableOpacity
-                    style={styles.modalDismissBtn}
-                    onPress={() => setSelectedAnnotation(null)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.modalDismissBtnText}>DONE</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
           </View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -431,12 +516,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#DD5622',
+    position: 'relative',
+    overflow: 'hidden',
   },
   teardownWrapper: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#DD5622',
     display: 'flex',
     flexDirection: 'column',
-    position: 'relative',
+  },
+  osSectionWrapper: {
+    backgroundColor: '#0A0A10',
+    zIndex: 50,
   },
   topBar: {
     flexDirection: 'row',
@@ -447,40 +538,39 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   circleIconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   topBarCenter: {
     alignItems: 'center',
+    justifyContent: 'center',
   },
   screenHeaderTitle: {
-    ...Typography.subhead,
+    fontFamily: FontFamilies.sans,
     color: Colors.textWhite,
-    fontSize: 14,
+    fontSize: 15,
     letterSpacing: 1,
-    fontWeight: '800',
-  },
-  screenHeaderSubtitle: {
-    ...Typography.tag,
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 9,
-    marginTop: 2,
     fontWeight: '700',
+    textAlign: 'center',
   },
   viewportContainer: {
     flex: 1,
+    width: '100%',
+    height: '100%',
     position: 'relative',
     marginHorizontal: 14,
     marginTop: 4,
     marginBottom: 16,
     borderRadius: 28,
     overflow: 'hidden',
-    backgroundColor: '#0A0A10',
+    backgroundColor: '#DD5622',
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.18)',
     justifyContent: 'center',
@@ -489,80 +579,7 @@ const styles = StyleSheet.create({
   frameImage: {
     width: '100%',
     height: '100%',
-  },
-  centerDiveInWrapper: {
-    position: 'absolute',
-    alignSelf: 'center',
-    bottom: '12%',
-    borderRadius: 32,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.6,
-    shadowRadius: 18,
-    elevation: 20,
-    zIndex: 9999,
-  },
-  centerDiveInButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#DD5622',
-    borderWidth: 2,
-    borderColor: '#FFA07A',
-    paddingVertical: 16,
-    paddingHorizontal: 26,
-    borderRadius: 32,
-    pointerEvents: 'auto',
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
-  },
-  centerDiveInIconGlow: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  centerDiveInText: {
-    ...Typography.headline,
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  scrollPromptBadge: {
-    position: 'absolute',
-    bottom: 24,
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 22,
-    gap: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  scrollPromptText: {
-    ...Typography.tag,
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  reversePromptBadge: {
-    position: 'absolute',
-    bottom: 16,
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
-    gap: 2,
-  },
-  reversePromptText: {
-    ...Typography.tag,
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 9,
-    fontWeight: '600',
+    flex: 1,
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -577,15 +594,15 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 20,
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 400,
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.15)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.6,
-    shadowRadius: 20,
-    elevation: 20,
-    gap: 12,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.65,
+    shadowRadius: 24,
+    elevation: 24,
+    gap: 14,
     zIndex: 10001,
   },
   modalHeaderRow: {
@@ -600,110 +617,94 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  modalHeaderTitleCol: {
+    flex: 1,
+    gap: 2,
+  },
   modalComponentName: {
-    ...Typography.headline,
+    fontFamily: FontFamilies.sans,
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 17,
+    fontWeight: '700',
   },
   modalComponentSubtitle: {
-    ...Typography.tag,
-    fontSize: 10,
-    fontWeight: '700',
-    marginTop: 2,
+    fontFamily: FontFamilies.sans,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   modalCloseButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
+  sectionHeaderLabel: {
+    fontFamily: FontFamilies.sans,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
   modalSummaryBox: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
     borderLeftWidth: 3,
     borderLeftColor: Colors.studioOrange,
+    gap: 2,
   },
   modalSummaryText: {
-    ...Typography.body,
+    fontFamily: FontFamilies.sans,
     color: '#E5E7EB',
     fontSize: 13,
     lineHeight: 19,
+    fontWeight: '400',
   },
-  specsGrid: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  specBox: {
-    flex: 1,
+  keySpecsBox: {
     backgroundColor: '#0E0E18',
     borderRadius: 12,
-    padding: 10,
+    padding: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     gap: 3,
   },
-  specLabel: {
-    ...Typography.tag,
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  specValue: {
-    ...Typography.tag,
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-    lineHeight: 14,
-  },
-  featuresList: {
-    gap: 6,
-  },
-  featuresHeader: {
-    ...Typography.tag,
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  featureRow: {
+  keySpecsHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
+    alignItems: 'center',
+    gap: 5,
   },
-  featureText: {
-    ...Typography.bodySmall,
-    color: '#D1D5DB',
-    fontSize: 11,
-    lineHeight: 16,
-    flex: 1,
+  keySpecsText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 17,
   },
   modalDismissBtn: {
-    backgroundColor: Colors.studioOrange,
     paddingVertical: 12,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
+    marginTop: 2,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   modalDismissBtnText: {
-    ...Typography.tag,
+    fontFamily: FontFamilies.sans,
     color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
 });

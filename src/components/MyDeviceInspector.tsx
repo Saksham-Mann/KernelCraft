@@ -8,14 +8,16 @@ import {
   PixelRatio,
   TouchableOpacity,
   ScrollView,
-  Animated,
 } from 'react-native';
 import { Colors } from '../theme/colors';
-import { Typography } from '../theme/typography';
+import { Typography, FontFamilies } from '../theme/typography';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-export type SchedulingAlgorithm = 'PRIORITY' | 'ROUND_ROBIN' | 'CFS';
+export type NativeSchedulerFamily =
+  | 'WINDOWS_NT_BOOST'
+  | 'LINUX_CFS_EEVDF'
+  | 'MACOS_MACH_MLFQ';
 
 interface ProcessDef {
   id: string;
@@ -24,7 +26,10 @@ interface ProcessDef {
   category: string;
   arrivalTime: number;
   burstTime: number;
-  priority: number; // 1 = highest, 4 = lowest
+  basePriority: number; // 1 (highest) to 4 (lowest)
+  nice: number; // Linux CFS nice value (-5 to +5)
+  weight: number; // CFS weight (3121, 1024, 1024, 335)
+  initialQueue: number; // macOS MLFQ queue 0, 1, 2
   color: string;
 }
 
@@ -35,6 +40,18 @@ interface ProcessRuntimeState {
   turnaroundTime: number | null;
   waitingTime: number | null;
   started: boolean;
+
+  // Windows NT Dispatcher: dynamic priority boosting
+  effectivePriority: number;
+  consecutiveWaitTicks: number;
+  boostTicksRemaining: number;
+
+  // Linux CFS / EEVDF: Virtual Runtime tracking
+  vruntime: number;
+
+  // macOS Mach MLFQ: Multilevel Feedback Queue tracking
+  currentQueue: number; // 0 (1ms), 1 (2ms), 2 (4ms)
+  quantumUsedInQueue: number;
 }
 
 interface GanttSlice {
@@ -48,15 +65,16 @@ interface GanttSlice {
 }
 
 interface HostTelemetry {
+  osFamily: 'Windows' | 'Linux' | 'macOS';
   osName: string;
-  osVersion: string;
+  kernelVersion: string;
   platformArch: string;
   cpuCores: number | string;
   screenResolution: string;
   pixelRatio: string;
   schedulingAlgorithmName: string;
   runtimeEnvironment: string;
-  algorithmKey: SchedulingAlgorithm;
+  schedulerFamily: NativeSchedulerFamily;
 }
 
 const INITIAL_PROCESSES: ProcessDef[] = [
@@ -67,7 +85,10 @@ const INITIAL_PROCESSES: ProcessDef[] = [
     category: 'Real-Time Audio Buffer',
     arrivalTime: 0,
     burstTime: 4,
-    priority: 1,
+    basePriority: 1, // Real-time priority
+    nice: -5,
+    weight: 3121, // High weight in CFS
+    initialQueue: 0, // Q0 in MLFQ
     color: '#22C55E', // Green
   },
   {
@@ -77,7 +98,10 @@ const INITIAL_PROCESSES: ProcessDef[] = [
     category: 'Display Refresh Pipeline',
     arrivalTime: 1,
     burstTime: 5,
-    priority: 2,
+    basePriority: 2, // High priority
+    nice: 0,
+    weight: 1024, // Standard weight
+    initialQueue: 0, // Q0 in MLFQ
     color: '#3B82F6', // Blue
   },
   {
@@ -87,7 +111,10 @@ const INITIAL_PROCESSES: ProcessDef[] = [
     category: 'User Input Handler',
     arrivalTime: 2,
     burstTime: 3,
-    priority: 3,
+    basePriority: 3, // Normal priority
+    nice: 0,
+    weight: 1024,
+    initialQueue: 0, // Q0 in MLFQ
     color: '#F59E0B', // Amber
   },
   {
@@ -97,130 +124,151 @@ const INITIAL_PROCESSES: ProcessDef[] = [
     category: 'Background Network Batch',
     arrivalTime: 4,
     burstTime: 4,
-    priority: 4,
+    basePriority: 4, // Low priority
+    nice: 5,
+    weight: 335, // Low weight in CFS
+    initialQueue: 1, // Q1 in MLFQ
     color: '#A855F7', // Purple
   },
 ];
 
 export const MyDeviceInspector: React.FC = () => {
   // ---------------------------------------------------------------------------
-  // 1. Host OS Telemetry Detection
+  // 1. Dynamic Host OS & Kernel Scheduler Detection
   // ---------------------------------------------------------------------------
   const [telemetry, setTelemetry] = useState<HostTelemetry>({
+    osFamily: 'Windows',
     osName: 'Detecting...',
-    osVersion: '',
+    kernelVersion: 'Detecting...',
     platformArch: 'Detecting...',
     cpuCores: 'Detecting...',
     screenResolution: 'Detecting...',
     pixelRatio: '1.0x',
-    schedulingAlgorithmName: 'CFS / Preemptive Priority',
+    schedulingAlgorithmName: 'Detecting Kernel Scheduler...',
     runtimeEnvironment: 'Detecting...',
-    algorithmKey: 'PRIORITY',
+    schedulerFamily: 'WINDOWS_NT_BOOST',
   });
-
-  const [selectedAlgorithm, setSelectedAlgorithm] = useState<SchedulingAlgorithm>('PRIORITY');
 
   useEffect(() => {
     const screen = Dimensions.get('screen');
     const pr = PixelRatio.get();
 
-    let os = Platform.OS.toUpperCase();
-    let version = String(Platform.Version || '');
-    let arch = 'ARM64 / x86_64';
+    let family: 'Windows' | 'Linux' | 'macOS' = 'Windows';
+    let os = 'Windows 11 / 10';
+    let kernel = 'Windows NT 10.0 (Hybrid Kernel)';
+    let arch = 'x86_64 (64-bit)';
     let cores: number | string = 8;
-    let schedName = 'CFS (Completely Fair Scheduler) / EEVDF';
-    let runtime = 'Native Runtime';
-    let detectedAlgo: SchedulingAlgorithm = 'CFS';
+    let schedName =
+      'Windows NT Kernel Thread Dispatcher (Priority-Driven Preemptive MLFQ with Dynamic Priority Boosting)';
+    let runtime = 'Chromium Engine (V8)';
+    let familyKey: NativeSchedulerFamily = 'WINDOWS_NT_BOOST';
 
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof navigator !== 'undefined') {
-      const ua = navigator.userAgent;
-      const uaData = (navigator as any).userAgentData;
+    // 1. Direct Node / Electron / Native Bridge Inspection
+    const nodeProcess = typeof process !== 'undefined' ? process : null;
+    const nodePlatform = nodeProcess?.platform;
 
-      // Platform architecture
-      if (/Win64|x64|WOW64|x86_64/i.test(ua)) {
-        arch = 'x86_64 (64-bit)';
-      } else if (/arm64|aarch64/i.test(ua)) {
-        arch = 'ARM64';
-      }
+    // 2. Browser Environment Inspection
+    const isWeb = Platform.OS === 'web' && typeof navigator !== 'undefined';
+    const ua = isWeb ? navigator.userAgent : '';
+    const uaData = isWeb ? (navigator as any).userAgentData : null;
 
-      // OS Detection & Native Scheduling mapping
-      if (/Windows/i.test(ua) || uaData?.platform === 'Windows') {
-        os = 'Windows';
-        version = '11 / 10';
-        schedName = 'Multithreaded Priority-Driven Preemptive Scheduler';
-        detectedAlgo = 'PRIORITY';
-      } else if (/Macintosh|Mac OS X/i.test(ua) || uaData?.platform === 'macOS') {
-        os = 'macOS';
-        schedName = 'Mach Multilevel Feedback Queue (MLFQ) & GCD';
-        detectedAlgo = 'ROUND_ROBIN';
-        if (!/x86_64/i.test(ua)) arch = 'Apple Silicon (ARM64)';
-      } else if (/Android/i.test(ua) || uaData?.platform === 'Android') {
-        os = 'Android (Linux Kernel)';
-        schedName = 'CFS (Completely Fair Scheduler) / EEVDF + EAS';
-        detectedAlgo = 'CFS';
-        arch = 'ARMv9 / ARMv8 64-bit';
-      } else if (/iPhone|iPad|iPod/i.test(ua) || uaData?.platform === 'iOS') {
-        os = 'iOS';
-        schedName = 'Mach Multilevel Feedback Queue (MLFQ) & GCD';
-        detectedAlgo = 'ROUND_ROBIN';
-        arch = 'Apple Bionic ARM64';
-      } else if (/Linux/i.test(ua) || uaData?.platform === 'Linux') {
-        os = 'Linux';
-        schedName = 'CFS (Completely Fair Scheduler) / EEVDF';
-        detectedAlgo = 'CFS';
-      }
+    if (nodePlatform === 'win32' || /Windows NT|Win64|WOW64/i.test(ua) || uaData?.platform === 'Windows') {
+      family = 'Windows';
+      familyKey = 'WINDOWS_NT_BOOST';
 
-      if (navigator.hardwareConcurrency) {
-        cores = navigator.hardwareConcurrency;
-      }
-
-      if (/Chrome/i.test(ua)) {
-        runtime = 'Chromium Engine (V8)';
-      } else if (/Safari/i.test(ua)) {
-        runtime = 'WebKit Engine (Nitro)';
-      } else if (/Firefox/i.test(ua)) {
-        runtime = 'Gecko Engine (SpiderMonkey)';
-      } else if (/Edge/i.test(ua)) {
-        runtime = 'Chromium Edge';
+      const ntMatch = ua.match(/Windows NT (\d+\.\d+)/i);
+      const ntVersion = ntMatch ? ntMatch[1] : '10.0';
+      if (ntVersion === '10.0') {
+        os = 'Windows 11 / 10';
+        kernel = 'Windows NT 10.0 (Build 22631 / 26200)';
+      } else if (ntVersion === '6.3') {
+        os = 'Windows 8.1';
+        kernel = 'Windows NT 6.3';
       } else {
-        runtime = 'Expo Web Container';
+        os = 'Windows NT';
+        kernel = `Windows NT ${ntVersion}`;
       }
+
+      arch = /x86_64|Win64|WOW64|x64/i.test(ua) ? 'x86_64 (64-bit)' : 'ARM64';
+      schedName =
+        'Windows NT Kernel Thread Dispatcher (Priority-Driven Preemptive MLFQ with Dynamic Priority Boosting)';
+    } else if (
+      nodePlatform === 'linux' ||
+      Platform.OS === 'android' ||
+      /Android|Linux/i.test(ua) ||
+      uaData?.platform === 'Linux' ||
+      uaData?.platform === 'Android'
+    ) {
+      family = 'Linux';
+      familyKey = 'LINUX_CFS_EEVDF';
+
+      if (Platform.OS === 'android' || /Android/i.test(ua)) {
+        const androidMatch = ua.match(/Android (\d+(\.\d+)?)/i);
+        const androidVersion = androidMatch ? androidMatch[1] : '14';
+        os = `Android ${androidVersion} (Linux Kernel)`;
+        kernel = 'Linux Kernel 6.1 / 6.6 (EEVDF Enabled) + EAS';
+        arch = 'ARMv9 / ARM64';
+        schedName = 'EEVDF (Earliest Eligible Virtual Deadline First) & CFS + EAS';
+      } else {
+        os = 'Linux Distribution (GNU/Linux)';
+        kernel = 'Linux Kernel 6.6+ (EEVDF Default Scheduler)';
+        arch = /arm64|aarch64/i.test(ua) ? 'ARM64' : 'x86_64';
+        schedName = 'EEVDF (Earliest Eligible Virtual Deadline First) & CFS';
+      }
+    } else if (
+      nodePlatform === 'darwin' ||
+      Platform.OS === 'ios' ||
+      /Macintosh|Mac OS X|iPhone|iPad/i.test(ua) ||
+      uaData?.platform === 'macOS'
+    ) {
+      family = 'macOS';
+      familyKey = 'MACOS_MACH_MLFQ';
+
+      if (Platform.OS === 'ios' || /iPhone|iPad/i.test(ua)) {
+        os = 'iOS (Darwin Kernel)';
+        kernel = 'Darwin / XNU (Mach Kernel 23.x)';
+        arch = 'Apple Bionic ARM64';
+        schedName = 'Mach Kernel Multilevel Feedback Queue (MLFQ) & GCD';
+      } else {
+        os = 'macOS (Darwin)';
+        kernel = 'Darwin / XNU (Mach Kernel 23.x)';
+        arch = /x86_64/i.test(ua) ? 'x86_64' : 'Apple Silicon (ARM64)';
+        schedName = 'Mach Kernel Multilevel Feedback Queue (MLFQ) & GCD';
+      }
+    }
+
+    if (isWeb && navigator.hardwareConcurrency) {
+      cores = navigator.hardwareConcurrency;
+    }
+
+    if (isWeb) {
+      if (/Chrome/i.test(ua)) runtime = 'Chromium Engine (V8)';
+      else if (/Safari/i.test(ua)) runtime = 'WebKit Engine (Nitro)';
+      else if (/Firefox/i.test(ua)) runtime = 'Gecko Engine (SpiderMonkey)';
+      else if (/Edge/i.test(ua)) runtime = 'Chromium Edge';
+      else runtime = 'Expo Web Sandbox';
     } else {
-      // Native iOS / Android
-      if (Platform.OS === 'android') {
-        os = 'Android';
-        schedName = 'CFS (Completely Fair Scheduler) / EEVDF + EAS';
-        detectedAlgo = 'CFS';
-        arch = 'ARM64';
-        runtime = 'Android Runtime (ART)';
-      } else if (Platform.OS === 'ios') {
-        os = 'iOS';
-        schedName = 'Mach Multilevel Feedback Queue (MLFQ) & GCD';
-        detectedAlgo = 'ROUND_ROBIN';
-        arch = 'Apple Silicon';
-        runtime = 'Darwin / XNU';
-      }
+      runtime = Platform.OS === 'android' ? 'Android Runtime (ART)' : 'Native Darwin XNU';
     }
 
     const screenRes = `${Math.round(screen.width * pr)} x ${Math.round(screen.height * pr)} px`;
 
     setTelemetry({
+      osFamily: family,
       osName: os,
-      osVersion: version,
+      kernelVersion: kernel,
       platformArch: arch,
       cpuCores: cores,
       screenResolution: screenRes,
       pixelRatio: `${pr.toFixed(1)}x`,
       schedulingAlgorithmName: schedName,
       runtimeEnvironment: runtime,
-      algorithmKey: detectedAlgo,
+      schedulerFamily: familyKey,
     });
-
-    setSelectedAlgorithm(detectedAlgo);
   }, []);
 
   // ---------------------------------------------------------------------------
-  // 2. Interactive CPU Scheduling Engine
+  // 2. Dynamic Simulation Engine (Directly Tied to Detected Kernel Scheduler)
   // ---------------------------------------------------------------------------
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [processStates, setProcessStates] = useState<ProcessRuntimeState[]>(() =>
@@ -231,17 +279,18 @@ export const MyDeviceInspector: React.FC = () => {
       turnaroundTime: null,
       waitingTime: null,
       started: false,
+      effectivePriority: p.basePriority,
+      consecutiveWaitTicks: 0,
+      boostTicksRemaining: 0,
+      vruntime: 0,
+      currentQueue: p.initialQueue,
+      quantumUsedInQueue: 0,
     }))
   );
 
   const [ganttTimeline, setGanttTimeline] = useState<GanttSlice[]>([]);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [contextSwitches, setContextSwitches] = useState<number>(0);
-
-  // Round robin queue tracker: queue of process IDs
-  const rrQueueRef = useRef<string[]>([]);
-  const rrQuantumRemainingRef = useRef<number>(2);
-  const rrCurrentProcRef = useRef<string | null>(null);
 
   // Auto-scroll Gantt chart
   const ganttScrollRef = useRef<ScrollView>(null);
@@ -252,9 +301,6 @@ export const MyDeviceInspector: React.FC = () => {
     setCurrentTime(0);
     setContextSwitches(0);
     setGanttTimeline([]);
-    rrQueueRef.current = [];
-    rrQuantumRemainingRef.current = 2;
-    rrCurrentProcRef.current = null;
     setProcessStates(
       INITIAL_PROCESSES.map((p) => ({
         id: p.id,
@@ -263,17 +309,17 @@ export const MyDeviceInspector: React.FC = () => {
         turnaroundTime: null,
         waitingTime: null,
         started: false,
+        effectivePriority: p.basePriority,
+        consecutiveWaitTicks: 0,
+        boostTicksRemaining: 0,
+        vruntime: 0,
+        currentQueue: p.initialQueue,
+        quantumUsedInQueue: 0,
       }))
     );
   }, []);
 
-  // Change algorithm and reset
-  const handleAlgorithmChange = (algo: SchedulingAlgorithm) => {
-    setSelectedAlgorithm(algo);
-    resetSimulation();
-  };
-
-  // Execute 1 Clock Tick (1 ms CPU step)
+  // Execute 1 Clock Tick (1 ms CPU step) driven directly by detected OS scheduler
   const stepClockTick = useCallback(() => {
     setProcessStates((prevStates) => {
       // Check if all processes completed
@@ -294,66 +340,75 @@ export const MyDeviceInspector: React.FC = () => {
       let chosenId: string | null = null;
 
       if (arrived.length > 0) {
-        if (selectedAlgorithm === 'PRIORITY') {
-          // Preemptive Priority: lowest priority value = highest priority
-          const sorted = [...arrived].sort((a, b) => {
-            const defA = INITIAL_PROCESSES.find((p) => p.id === a.id)!;
-            const defB = INITIAL_PROCESSES.find((p) => p.id === b.id)!;
-            if (defA.priority !== defB.priority) {
-              return defA.priority - defB.priority;
-            }
-            return defA.arrivalTime - defB.arrivalTime;
-          });
-          chosenId = sorted[0].id;
-        } else if (selectedAlgorithm === 'CFS') {
-          // CFS / Shortest Remaining Time First (SRTF): smallest remaining burst runs first
-          const sorted = [...arrived].sort((a, b) => {
-            if (a.remainingBurst !== b.remainingBurst) {
-              return a.remainingBurst - b.remainingBurst;
-            }
-            const defA = INITIAL_PROCESSES.find((p) => p.id === a.id)!;
-            const defB = INITIAL_PROCESSES.find((p) => p.id === b.id)!;
-            return defA.arrivalTime - defB.arrivalTime;
-          });
-          chosenId = sorted[0].id;
-        } else if (selectedAlgorithm === 'ROUND_ROBIN') {
-          // Round Robin: Quantum = 2ms
-          // Maintain FIFO queue
-          const queue = rrQueueRef.current;
-          // Add any newly arrived processes not yet in queue
-          for (const item of arrived) {
-            if (!queue.includes(item.id) && rrCurrentProcRef.current !== item.id) {
-              queue.push(item.id);
-            }
-          }
+        if (telemetry.schedulerFamily === 'WINDOWS_NT_BOOST') {
+          // -------------------------------------------------------------------
+          // WINDOWS NT KERNEL THREAD DISPATCHER
+          // Priority-Driven Preemptive MLFQ with Dynamic Starvation Boost
+          // -------------------------------------------------------------------
+          // 1. Calculate dynamic priority boost for waiting threads
+          const evaluated = arrived.map((proc) => {
+            let effPrio = proc.effectivePriority;
+            let boostRem = proc.boostTicksRemaining;
 
-          if (rrCurrentProcRef.current && rrQuantumRemainingRef.current > 0) {
-            const currentObj = arrived.find((p) => p.id === rrCurrentProcRef.current);
-            if (currentObj && currentObj.remainingBurst > 0) {
-              chosenId = rrCurrentProcRef.current;
-              rrQuantumRemainingRef.current -= 1;
-            } else {
-              // Current finished, pop next
-              chosenId = queue.shift() || null;
-              rrCurrentProcRef.current = chosenId;
-              rrQuantumRemainingRef.current = 1; // 1 used this tick
+            // If a thread has waited >= 3 ticks without getting CPU, grant priority boost
+            if (proc.consecutiveWaitTicks >= 3 && boostRem === 0) {
+              effPrio = Math.max(1, proc.effectivePriority - 1); // Boost level
+              boostRem = 2; // Lasts 2 ticks
             }
-          } else {
-            // Quantum expired or no current: if current still has remaining, re-queue
-            if (rrCurrentProcRef.current) {
-              const currentObj = arrived.find((p) => p.id === rrCurrentProcRef.current);
-              if (currentObj && currentObj.remainingBurst > 0) {
-                queue.push(rrCurrentProcRef.current);
-              }
+            return {
+              ...proc,
+              evalPriority: effPrio,
+              evalBoostRem: boostRem,
+            };
+          });
+
+          // Sort by effective priority (lowest numeric value = highest priority)
+          evaluated.sort((a, b) => {
+            if (a.evalPriority !== b.evalPriority) {
+              return a.evalPriority - b.evalPriority;
             }
-            chosenId = queue.shift() || null;
-            rrCurrentProcRef.current = chosenId;
-            rrQuantumRemainingRef.current = 1; // 1 used this tick
-          }
+            const defA = INITIAL_PROCESSES.find((p) => p.id === a.id)!;
+            const defB = INITIAL_PROCESSES.find((p) => p.id === b.id)!;
+            return defA.arrivalTime - defB.arrivalTime;
+          });
+
+          chosenId = evaluated[0].id;
+        } else if (telemetry.schedulerFamily === 'LINUX_CFS_EEVDF') {
+          // -------------------------------------------------------------------
+          // LINUX CFS / EEVDF SCHEDULER
+          // Virtual Runtime (vruntime) tracking with weight normalization
+          // -------------------------------------------------------------------
+          // Sort by lowest vruntime
+          const sorted = [...arrived].sort((a, b) => {
+            if (Math.abs(a.vruntime - b.vruntime) > 0.01) {
+              return a.vruntime - b.vruntime;
+            }
+            const defA = INITIAL_PROCESSES.find((p) => p.id === a.id)!;
+            const defB = INITIAL_PROCESSES.find((p) => p.id === b.id)!;
+            return defA.arrivalTime - defB.arrivalTime;
+          });
+
+          chosenId = sorted[0].id;
+        } else {
+          // -------------------------------------------------------------------
+          // MACOS / IOS MACH KERNEL MLFQ
+          // 3-Queue Multilevel Feedback: Q0 (1ms), Q1 (2ms), Q2 (4ms)
+          // -------------------------------------------------------------------
+          // Pick from highest priority non-empty queue (0 > 1 > 2)
+          const sorted = [...arrived].sort((a, b) => {
+            if (a.currentQueue !== b.currentQueue) {
+              return a.currentQueue - b.currentQueue;
+            }
+            const defA = INITIAL_PROCESSES.find((p) => p.id === a.id)!;
+            const defB = INITIAL_PROCESSES.find((p) => p.id === b.id)!;
+            return defA.arrivalTime - defB.arrivalTime;
+          });
+
+          chosenId = sorted[0].id;
         }
       }
 
-      // Check context switch
+      // Check context switch & update Gantt Timeline
       setGanttTimeline((prevGantt) => {
         const lastSlice = prevGantt[prevGantt.length - 1];
 
@@ -361,7 +416,7 @@ export const MyDeviceInspector: React.FC = () => {
           const chosenDef = INITIAL_PROCESSES.find((p) => p.id === chosenId)!;
 
           if (lastSlice && lastSlice.processId === chosenId) {
-            // Extend existing block
+            // Extend active execution block
             const updated = [...prevGantt];
             updated[updated.length - 1] = {
               ...lastSlice,
@@ -369,7 +424,7 @@ export const MyDeviceInspector: React.FC = () => {
             };
             return updated;
           } else {
-            // Context switch
+            // Context switch occurred
             if (lastSlice && !lastSlice.isIdle) {
               setContextSwitches((c) => c + 1);
             }
@@ -411,26 +466,90 @@ export const MyDeviceInspector: React.FC = () => {
         }
       });
 
-      // Update state of the executing process
-      const nextStates = prevStates.map((p) => {
-        if (p.id === chosenId) {
-          const newRemaining = Math.max(0, p.remainingBurst - 1);
+      // Update runtime state of all processes for next tick
+      const nextStates = prevStates.map((proc) => {
+        const def = INITIAL_PROCESSES.find((item) => item.id === proc.id)!;
+        const hasArrived = def.arrivalTime <= t;
+        const isSelected = proc.id === chosenId;
+
+        if (isSelected) {
+          const newRemaining = Math.max(0, proc.remainingBurst - 1);
           const isFinished = newRemaining === 0;
           const ct = isFinished ? t + 1 : null;
-          const def = INITIAL_PROCESSES.find((item) => item.id === p.id)!;
-          const tat = isFinished ? (ct! - def.arrivalTime) : null;
-          const wt = isFinished ? (tat! - def.burstTime) : null;
+          const tat = isFinished ? ct! - def.arrivalTime : null;
+          const wt = isFinished ? tat! - def.burstTime : null;
+
+          // 1. Windows state update
+          let newEffPrio = proc.effectivePriority;
+          let newBoostRem = proc.boostTicksRemaining;
+          if (newBoostRem > 0) {
+            newBoostRem -= 1;
+            if (newBoostRem === 0) {
+              newEffPrio = def.basePriority; // Decay boost
+            }
+          }
+
+          // 2. Linux CFS vruntime update: delta_vruntime = (1024 / weight) * 1ms
+          const deltaVruntime = (1024 / def.weight) * 1.0;
+          const newVruntime = proc.vruntime + deltaVruntime;
+
+          // 3. macOS MLFQ queue state update
+          let nextQueue = proc.currentQueue;
+          let nextQuantumUsed = proc.quantumUsedInQueue + 1;
+          if (proc.currentQueue === 0 && nextQuantumUsed >= 1) {
+            nextQueue = 1; // Demote to Q1
+            nextQuantumUsed = 0;
+          } else if (proc.currentQueue === 1 && nextQuantumUsed >= 2) {
+            nextQueue = 2; // Demote to Q2
+            nextQuantumUsed = 0;
+          } else if (proc.currentQueue === 2 && nextQuantumUsed >= 4) {
+            nextQuantumUsed = 0; // Round robin in Q2
+          }
 
           return {
-            ...p,
+            ...proc,
             started: true,
             remainingBurst: newRemaining,
-            completionTime: isFinished ? ct : p.completionTime,
-            turnaroundTime: isFinished ? tat : p.turnaroundTime,
-            waitingTime: isFinished ? wt : p.waitingTime,
+            completionTime: isFinished ? ct : proc.completionTime,
+            turnaroundTime: isFinished ? tat : proc.turnaroundTime,
+            waitingTime: isFinished ? wt : proc.waitingTime,
+            consecutiveWaitTicks: 0,
+            effectivePriority: newEffPrio,
+            boostTicksRemaining: newBoostRem,
+            vruntime: newVruntime,
+            currentQueue: nextQueue,
+            quantumUsedInQueue: nextQuantumUsed,
+          };
+        } else {
+          // Process not selected this tick
+          let waitTicks = proc.consecutiveWaitTicks;
+          let effPrio = proc.effectivePriority;
+          let boostRem = proc.boostTicksRemaining;
+
+          if (hasArrived && proc.remainingBurst > 0) {
+            waitTicks += 1;
+            // Windows Starvation check: boost priority after 3 wait ticks
+            if (telemetry.schedulerFamily === 'WINDOWS_NT_BOOST') {
+              if (waitTicks >= 3 && boostRem === 0) {
+                effPrio = Math.max(1, def.basePriority - 1);
+                boostRem = 2;
+              }
+            }
+
+            // macOS Anti-starvation periodic boost (every 8 ticks)
+            if (telemetry.schedulerFamily === 'MACOS_MACH_MLFQ' && t > 0 && t % 8 === 0) {
+              proc.currentQueue = Math.max(0, proc.currentQueue - 1);
+              proc.quantumUsedInQueue = 0;
+            }
+          }
+
+          return {
+            ...proc,
+            consecutiveWaitTicks: waitTicks,
+            effectivePriority: effPrio,
+            boostTicksRemaining: boostRem,
           };
         }
-        return p;
       });
 
       // Advance clock
@@ -444,7 +563,7 @@ export const MyDeviceInspector: React.FC = () => {
 
       return nextStates;
     });
-  }, [currentTime, selectedAlgorithm]);
+  }, [currentTime, telemetry.schedulerFamily]);
 
   // Auto-play timer
   useEffect(() => {
@@ -457,7 +576,7 @@ export const MyDeviceInspector: React.FC = () => {
     return () => clearInterval(interval);
   }, [isPlaying, stepClockTick]);
 
-  // Auto scroll Gantt timeline to end
+  // Auto scroll Gantt timeline to end as blocks progress
   useEffect(() => {
     ganttScrollRef.current?.scrollToEnd({ animated: true });
   }, [ganttTimeline]);
@@ -494,7 +613,7 @@ export const MyDeviceInspector: React.FC = () => {
   return (
     <View style={styles.container}>
       {/* =================================================================== */}
-      {/* 1. CPU SCHEDULING RULES (Reference: Image 4)                        */}
+      {/* 1. CPU SCHEDULING RULES (Clean Reference Design)                    */}
       {/* =================================================================== */}
       <View style={styles.cardSurface}>
         <View style={styles.rulesHeader}>
@@ -563,7 +682,7 @@ export const MyDeviceInspector: React.FC = () => {
                 Critical apps (like audio playback) are prioritized to prevent interruptions.
               </Text>
             </View>
-            {/* Visual Micro-Graphic: Priority Arrows & Alert */}
+            {/* Visual Micro-Graphic: Priority Arrows */}
             <View style={styles.ruleGraphicBox}>
               <View style={styles.priorityMiniStack}>
                 <Ionicons name="arrow-up" size={16} color="#22C55E" />
@@ -578,36 +697,32 @@ export const MyDeviceInspector: React.FC = () => {
       </View>
 
       {/* =================================================================== */}
-      {/* 2. HOST SYSTEM TELEMETRY (Clean, Streamlined Status Card)           */}
+      {/* 2. HOST SYSTEM OVERVIEW (Clean Header, No Cluttered Badges)         */}
       {/* =================================================================== */}
       <View style={styles.cardSurface}>
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeaderLeft}>
-            <Ionicons name="shield-checkmark" size={18} color="#3B82F6" />
-            <Text style={styles.sectionTitle}>HOST SYSTEM TELEMETRY</Text>
-          </View>
-          <View style={styles.activeEngineBadge}>
-            <View style={styles.liveGreenDot} />
-            <Text style={styles.activeEngineText}>LIVE TELEMETRY</Text>
+            <Ionicons name="shield-checkmark-outline" size={18} color="#3B82F6" />
+            <Text style={styles.sectionTitle}>HOST SYSTEM OVERVIEW</Text>
           </View>
         </View>
 
         <View style={styles.telemetryGrid}>
-          {/* OS & Architecture */}
+          {/* Host OS & Architecture */}
           <View style={styles.telemetryTile}>
             <Text style={styles.tileLabel}>HOST OS & ARCHITECTURE</Text>
             <Text style={styles.tilePrimaryValue}>{telemetry.osName}</Text>
             <Text style={styles.tileSecondaryValue}>{telemetry.platformArch}</Text>
           </View>
 
-          {/* CPU Hardware Concurrency */}
+          {/* Logical Concurrency */}
           <View style={styles.telemetryTile}>
             <Text style={styles.tileLabel}>LOGICAL CONCURRENCY</Text>
             <Text style={styles.tilePrimaryValue}>{telemetry.cpuCores} Threads</Text>
             <Text style={styles.tileSecondaryValue}>{telemetry.runtimeEnvironment}</Text>
           </View>
 
-          {/* Native OS Scheduling Engine */}
+          {/* Native Kernel Scheduler */}
           <View style={[styles.telemetryTile, styles.telemetryTileFull]}>
             <Text style={styles.tileLabel}>NATIVE KERNEL SCHEDULER</Text>
             <Text style={styles.tileHighlightValue}>{telemetry.schedulingAlgorithmName}</Text>
@@ -616,7 +731,7 @@ export const MyDeviceInspector: React.FC = () => {
       </View>
 
       {/* =================================================================== */}
-      {/* 3. INTERACTIVE CPU SCHEDULER ENGINE & LIVE GANTT CHART              */}
+      {/* 3. DYNAMIC SIMULATION ENGINE & LIVE GANTT TIMELINE                  */}
       {/* =================================================================== */}
       <View style={styles.cardSurface}>
         <View style={styles.sectionHeaderRow}>
@@ -632,64 +747,18 @@ export const MyDeviceInspector: React.FC = () => {
           </View>
         </View>
 
-        {/* Algorithm Switcher */}
-        <View style={styles.algoSelectorRow}>
-          <TouchableOpacity
-            style={[
-              styles.algoTab,
-              selectedAlgorithm === 'PRIORITY' && styles.algoTabActive,
-            ]}
-            onPress={() => handleAlgorithmChange('PRIORITY')}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[
-                styles.algoTabText,
-                selectedAlgorithm === 'PRIORITY' && styles.algoTabTextActive,
-              ]}
-            >
-              Preemptive Priority
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.algoTab,
-              selectedAlgorithm === 'ROUND_ROBIN' && styles.algoTabActive,
-            ]}
-            onPress={() => handleAlgorithmChange('ROUND_ROBIN')}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[
-                styles.algoTabText,
-                selectedAlgorithm === 'ROUND_ROBIN' && styles.algoTabTextActive,
-              ]}
-            >
-              Round Robin (RR)
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.algoTab,
-              selectedAlgorithm === 'CFS' && styles.algoTabActive,
-            ]}
-            onPress={() => handleAlgorithmChange('CFS')}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[
-                styles.algoTabText,
-                selectedAlgorithm === 'CFS' && styles.algoTabTextActive,
-              ]}
-            >
-              CFS / SRTF
-            </Text>
-          </TouchableOpacity>
+        {/* Dynamic Native Kernel Simulation Indicator (Replaces generic tabs) */}
+        <View style={styles.nativeLogicBanner}>
+          <View style={styles.nativeLogicLeft}>
+            <Ionicons name="git-branch-outline" size={14} color="#38BDF8" />
+            <Text style={styles.nativeLogicTag}>SIMULATING NATIVE KERNEL LOGIC</Text>
+          </View>
+          <Text style={styles.nativeLogicDetail} numberOfLines={1}>
+            {telemetry.schedulingAlgorithmName}
+          </Text>
         </View>
 
-        {/* Control Bar: Play / Pause, Next Step, Reset */}
+        {/* Control Bar: Auto Run / Pause, Step, Reset */}
         <View style={styles.controlsRow}>
           <TouchableOpacity
             style={[styles.primaryActionBtn, isPlaying && styles.primaryActionBtnActive]}
@@ -712,8 +781,17 @@ export const MyDeviceInspector: React.FC = () => {
             disabled={isAllComplete}
             activeOpacity={0.8}
           >
-            <Ionicons name="play-forward" size={15} color={isAllComplete ? '#6B7280' : '#FFFFFF'} />
-            <Text style={[styles.secondaryActionBtnText, isAllComplete && { color: '#6B7280' }]}>
+            <Ionicons
+              name="play-forward"
+              size={15}
+              color={isAllComplete ? '#6B7280' : '#FFFFFF'}
+            />
+            <Text
+              style={[
+                styles.secondaryActionBtnText,
+                isAllComplete && { color: '#6B7280' },
+              ]}
+            >
               STEP (+1ms)
             </Text>
           </TouchableOpacity>
@@ -728,13 +806,13 @@ export const MyDeviceInspector: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Live Gantt Chart Timeline */}
+        {/* Live Gantt Chart Timeline with Continuous Partition Axis */}
         <View style={styles.ganttContainer}>
           <View style={styles.ganttHeader}>
             <Text style={styles.ganttTitle}>GANTT TIMELINE BAR</Text>
             <Text style={styles.ganttSubtitle}>
               {ganttTimeline.length === 0
-                ? 'Queue initialized at T=0. Press Step or Auto Run.'
+                ? 'Queue initialized at T=0. Press Step or Auto Run to dispatch CPU.'
                 : `${ganttTimeline.length} Time slices executed • ${contextSwitches} Context Switches`}
             </Text>
           </View>
@@ -749,45 +827,75 @@ export const MyDeviceInspector: React.FC = () => {
               <View style={styles.emptyGanttPlaceholder}>
                 <Ionicons name="time-outline" size={18} color="#6B7280" />
                 <Text style={styles.emptyGanttText}>
-                  Timeline ready. Click "STEP (+1ms)" to dispatch CPU.
+                  Simulation queue ready. Click "STEP (+1ms)" to dispatch CPU.
                 </Text>
               </View>
             ) : (
-              ganttTimeline.map((slice, index) => {
-                const isLatest = index === ganttTimeline.length - 1;
-                const duration = slice.endTime - slice.startTime;
-                const width = Math.max(54, duration * 26);
+              <View style={styles.ganttFullWrap}>
+                {/* 1. Slices Bar Row */}
+                <View style={styles.ganttBlocksRow}>
+                  {ganttTimeline.map((slice, index) => {
+                    const isLatest = index === ganttTimeline.length - 1;
+                    const duration = slice.endTime - slice.startTime;
+                    const width = Math.max(54, duration * 26);
 
-                return (
-                  <View key={slice.id} style={[styles.ganttSliceWrap, { width }]}>
-                    <View
-                      style={[
-                        styles.ganttSliceBar,
-                        { backgroundColor: slice.color },
-                        isLatest && !isAllComplete && styles.ganttSliceActive,
-                      ]}
-                    >
-                      <Text style={styles.ganttSlicePid} numberOfLines={1}>
-                        {slice.processId}
-                      </Text>
-                      <Text style={styles.ganttSliceDuration} numberOfLines={1}>
-                        {duration}ms
-                      </Text>
-                    </View>
-                    <View style={styles.ganttTimestampRow}>
-                      <Text style={styles.timestampStart}>{slice.startTime}</Text>
-                      <Text style={styles.timestampEnd}>{slice.endTime}</Text>
-                    </View>
+                    return (
+                      <View
+                        key={slice.id}
+                        style={[
+                          styles.ganttSliceBar,
+                          { width, backgroundColor: slice.color },
+                          isLatest && !isAllComplete && styles.ganttSliceActive,
+                        ]}
+                      >
+                        <Text style={styles.ganttSlicePid} numberOfLines={1}>
+                          {slice.processId}
+                        </Text>
+                        <Text style={styles.ganttSliceDuration} numberOfLines={1}>
+                          {duration}ms
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* 2. Continuous Partition Axis Row (| 0 | 4 | 7 | 10 | 14 |) */}
+                <View style={styles.ganttAxisRow}>
+                  {/* Origin tick (T=0) */}
+                  <View style={styles.ganttOriginMarker}>
+                    <View style={styles.ganttTickMark} />
+                    <Text style={styles.ganttTickLabel}>
+                      {ganttTimeline[0].startTime}
+                    </Text>
                   </View>
-                );
-              })
+
+                  {/* Boundary markers for each partition */}
+                  {ganttTimeline.map((slice) => {
+                    const duration = slice.endTime - slice.startTime;
+                    const width = Math.max(54, duration * 26);
+
+                    return (
+                      <View
+                        key={`tick-${slice.id}`}
+                        style={[styles.ganttAxisSegment, { width }]}
+                      >
+                        <View style={styles.ganttAxisDividerLine} />
+                        <View style={styles.ganttAxisTickContainer}>
+                          <View style={styles.ganttTickMark} />
+                          <Text style={styles.ganttTickLabel}>{slice.endTime}</Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
             )}
           </ScrollView>
         </View>
       </View>
 
       {/* =================================================================== */}
-      {/* 4. PROCESS EXECUTION & METRICS TABLE                                */}
+      {/* 4. PROCESS EXECUTION METRICS (Clean Table, No Overlapping Formula)  */}
       {/* =================================================================== */}
       <View style={styles.cardSurface}>
         <View style={styles.sectionHeaderRow}>
@@ -795,19 +903,16 @@ export const MyDeviceInspector: React.FC = () => {
             <Ionicons name="stats-chart-outline" size={18} color="#22C55E" />
             <Text style={styles.sectionTitle}>PROCESS EXECUTION METRICS</Text>
           </View>
-          <Text style={styles.formulaNote}>TAT = CT - AT  |  WT = TAT - BT</Text>
         </View>
 
-        {/* Responsive Table Container */}
+        {/* Clean Process Metrics Table */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.tableWrap}>
             {/* Table Header */}
             <View style={styles.tableHeaderRow}>
-              <Text style={[styles.th, styles.colProcess]}>Process (Task)</Text>
-              <Text style={[styles.th, styles.colNum]}>AT</Text>
-              <Text style={[styles.th, styles.colNum]}>BT</Text>
-              <Text style={[styles.th, styles.colNum]}>Rem</Text>
-              <Text style={[styles.th, styles.colNum]}>Prio</Text>
+              <Text style={[styles.th, styles.colProcess]}>Process ID</Text>
+              <Text style={[styles.th, styles.colPriority]}>Priority / Weight</Text>
+              <Text style={[styles.th, styles.colBurst]}>Burst Time</Text>
               <Text style={[styles.th, styles.colNum]}>CT</Text>
               <Text style={[styles.th, styles.colNum]}>TAT</Text>
               <Text style={[styles.th, styles.colNum]}>WT</Text>
@@ -822,6 +927,31 @@ export const MyDeviceInspector: React.FC = () => {
                 !isAllComplete;
               const isCompleted = state.remainingBurst === 0;
 
+              // Render priority/weight column based on detected OS scheduler
+              let priorityDisplay = `P${proc.basePriority}`;
+              let prioritySub = 'Base';
+
+              if (telemetry.schedulerFamily === 'WINDOWS_NT_BOOST') {
+                if (state.boostTicksRemaining > 0) {
+                  priorityDisplay = `P${state.effectivePriority}`;
+                  prioritySub = '+1 Boost';
+                } else {
+                  priorityDisplay = `P${proc.basePriority}`;
+                  prioritySub = proc.basePriority === 1 ? 'Realtime' : 'Normal';
+                }
+              } else if (telemetry.schedulerFamily === 'LINUX_CFS_EEVDF') {
+                priorityDisplay = `Nice ${proc.nice > 0 ? '+' : ''}${proc.nice}`;
+                prioritySub = `v: ${state.vruntime.toFixed(1)}ms`;
+              } else {
+                priorityDisplay = `Q${state.currentQueue}`;
+                prioritySub =
+                  state.currentQueue === 0
+                    ? '1ms slice'
+                    : state.currentQueue === 1
+                    ? '2ms slice'
+                    : '4ms batch';
+              }
+
               return (
                 <View
                   key={proc.id}
@@ -834,48 +964,47 @@ export const MyDeviceInspector: React.FC = () => {
                   <View style={[styles.td, styles.colProcess]}>
                     <View style={[styles.processDot, { backgroundColor: proc.color }]} />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.tdProcessName}>{proc.id} • {proc.shortName}</Text>
+                      <Text style={styles.tdProcessName}>
+                        {proc.id} • {proc.shortName}
+                      </Text>
                       <Text style={styles.tdCategory} numberOfLines={1}>
                         {proc.category}
                       </Text>
                     </View>
                   </View>
 
-                  {/* Arrival Time */}
-                  <Text style={[styles.tdMono, styles.colNum]}>{proc.arrivalTime}ms</Text>
-
-                  {/* Total Burst Time */}
-                  <Text style={[styles.tdMono, styles.colNum]}>{proc.burstTime}ms</Text>
-
-                  {/* Remaining Burst */}
-                  <Text
-                    style={[
-                      styles.tdMono,
-                      styles.colNum,
-                      { color: isCompleted ? '#6B7280' : proc.color, fontWeight: '700' },
-                    ]}
-                  >
-                    {state.remainingBurst}ms
-                  </Text>
-
-                  {/* Priority */}
-                  <View style={[styles.td, styles.colNum]}>
-                    <View style={styles.priorityPill}>
-                      <Text style={styles.priorityPillText}>P{proc.priority}</Text>
+                  {/* Priority / Weight */}
+                  <View style={[styles.td, styles.colPriority]}>
+                    <View style={styles.priorityBox}>
+                      <Text style={styles.priorityBoxTitle}>{priorityDisplay}</Text>
+                      <Text style={styles.priorityBoxSub}>{prioritySub}</Text>
                     </View>
                   </View>
 
-                  {/* Completion Time */}
+                  {/* Burst Time (Total & Remaining) */}
+                  <View style={[styles.td, styles.colBurst]}>
+                    <Text style={styles.tdBurstTotal}>{proc.burstTime}ms</Text>
+                    <Text
+                      style={[
+                        styles.tdBurstRem,
+                        { color: isCompleted ? '#6B7280' : proc.color },
+                      ]}
+                    >
+                      {isCompleted ? 'Done' : `${state.remainingBurst}ms left`}
+                    </Text>
+                  </View>
+
+                  {/* Completion Time (CT) */}
                   <Text style={[styles.tdMono, styles.colNum]}>
                     {state.completionTime !== null ? `${state.completionTime}ms` : '--'}
                   </Text>
 
-                  {/* Turnaround Time */}
+                  {/* Turnaround Time (TAT) */}
                   <Text style={[styles.tdMono, styles.colNum]}>
                     {state.turnaroundTime !== null ? `${state.turnaroundTime}ms` : '--'}
                   </Text>
 
-                  {/* Waiting Time */}
+                  {/* Waiting Time (WT) */}
                   <Text style={[styles.tdMono, styles.colNum]}>
                     {state.waitingTime !== null ? `${state.waitingTime}ms` : '--'}
                   </Text>
@@ -936,7 +1065,7 @@ const styles = StyleSheet.create({
     ...Typography.subhead,
     color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0.5,
   },
   rulesSubtitle: {
@@ -968,7 +1097,7 @@ const styles = StyleSheet.create({
     ...Typography.tag,
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   ruleTextCol: {
     flex: 1,
@@ -1005,7 +1134,7 @@ const styles = StyleSheet.create({
   cpuMiniText: {
     color: '#22C55E',
     fontSize: 7,
-    fontWeight: '800',
+    fontWeight: '700',
     marginTop: -2,
   },
   cpuMiniTasksCol: {
@@ -1032,7 +1161,8 @@ const styles = StyleSheet.create({
   sliceArcText: {
     color: '#3B82F6',
     fontSize: 7,
-    fontWeight: '800',
+    fontFamily: FontFamilies.mono,
+    fontWeight: '600',
   },
   priorityMiniStack: {
     flexDirection: 'row',
@@ -1050,7 +1180,7 @@ const styles = StyleSheet.create({
   },
 
   // ---------------------------------------------------------------------------
-  // 2. Host Telemetry Styles
+  // 2. Host Overview Styles (Clean, No Status Pills)
   // ---------------------------------------------------------------------------
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -1066,31 +1196,8 @@ const styles = StyleSheet.create({
     ...Typography.subhead,
     color: '#FFFFFF',
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0.5,
-  },
-  activeEngineBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.25)',
-  },
-  liveGreenDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#22C55E',
-  },
-  activeEngineText: {
-    ...Typography.tag,
-    color: '#22C55E',
-    fontSize: 9,
-    fontWeight: '800',
   },
   telemetryGrid: {
     flexDirection: 'row',
@@ -1135,7 +1242,7 @@ const styles = StyleSheet.create({
   },
 
   // ---------------------------------------------------------------------------
-  // 3. Scheduler Engine & Gantt Styles
+  // 3. Scheduler Engine & Live Gantt Styles
   // ---------------------------------------------------------------------------
   clockBadge: {
     flexDirection: 'row',
@@ -1154,37 +1261,36 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   clockValue: {
-    ...Typography.tag,
     color: '#FFFFFF',
     fontSize: 11,
-    fontWeight: '800',
+    fontFamily: FontFamilies.mono,
+    fontWeight: '600',
   },
-  algoSelectorRow: {
-    flexDirection: 'row',
+  nativeLogicBanner: {
     backgroundColor: '#12151B',
-    padding: 4,
-    borderRadius: 12,
-    gap: 4,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.2)',
+    gap: 3,
   },
-  algoTab: {
-    flex: 1,
-    paddingVertical: 7,
+  nativeLogicLeft: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
+    gap: 5,
   },
-  algoTabActive: {
-    backgroundColor: '#2563EB',
-  },
-  algoTabText: {
+  nativeLogicTag: {
     ...Typography.tag,
-    color: '#9CA3AF',
+    color: '#38BDF8',
     fontSize: 9,
-    fontWeight: '700',
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
-  algoTabTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '800',
+  nativeLogicDetail: {
+    color: '#E5E7EB',
+    fontSize: 11,
+    fontWeight: '600',
   },
   controlsRow: {
     flexDirection: 'row',
@@ -1208,7 +1314,7 @@ const styles = StyleSheet.create({
     ...Typography.tag,
     color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   secondaryActionBtn: {
     flex: 1.2,
@@ -1260,7 +1366,7 @@ const styles = StyleSheet.create({
     ...Typography.tag,
     color: '#9CA3AF',
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
   ganttSubtitle: {
@@ -1276,7 +1382,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 10,
   },
   emptyGanttText: {
@@ -1284,58 +1390,97 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 11,
   },
-  ganttSliceWrap: {
-    marginRight: 2,
+  ganttFullWrap: {
+    flexDirection: 'column',
+    position: 'relative',
+  },
+  ganttBlocksRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   ganttSliceBar: {
-    height: 36,
-    borderRadius: 6,
+    height: 38,
+    borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
+    marginRight: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.3)',
   },
   ganttSliceActive: {
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
   ganttSlicePid: {
-    ...Typography.tag,
     color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '800',
+    fontFamily: FontFamilies.mono,
+    fontWeight: '600',
   },
   ganttSliceDuration: {
     color: 'rgba(255, 255, 255, 0.85)',
     fontSize: 8,
-    fontWeight: '600',
+    fontFamily: FontFamilies.mono,
+    fontWeight: '500',
   },
-  ganttTimestampRow: {
+  ganttAxisRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 3,
-    paddingHorizontal: 1,
+    alignItems: 'flex-start',
+    marginTop: 4,
+    position: 'relative',
+    height: 22,
   },
-  timestampStart: {
+  ganttOriginMarker: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 24,
+    marginLeft: -12,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  ganttAxisSegment: {
+    position: 'relative',
+    height: 22,
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    marginRight: 1,
+  },
+  ganttAxisDividerLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  ganttAxisTickContainer: {
+    position: 'absolute',
+    right: -12,
+    top: 0,
+    width: 24,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  ganttTickMark: {
+    width: 1,
+    height: 5,
+    backgroundColor: '#9CA3AF',
+    marginBottom: 2,
+  },
+  ganttTickLabel: {
     color: '#9CA3AF',
     fontSize: 9,
-    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
-  },
-  timestampEnd: {
-    color: '#9CA3AF',
-    fontSize: 9,
-    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    fontFamily: FontFamilies.mono,
+    textAlign: 'center',
   },
 
   // ---------------------------------------------------------------------------
   // 4. Metrics Table Styles
   // ---------------------------------------------------------------------------
-  formulaNote: {
-    ...Typography.tag,
-    color: '#6B7280',
-    fontSize: 8,
-  },
   tableWrap: {
-    width: 440,
+    width: 480,
     gap: 4,
   },
   tableHeaderRow: {
@@ -1373,17 +1518,27 @@ const styles = StyleSheet.create({
   tdMono: {
     color: '#E5E7EB',
     fontSize: 10,
-    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    fontFamily: FontFamilies.mono,
     textAlign: 'center',
   },
   colProcess: {
-    width: 140,
+    width: 155,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
+  colPriority: {
+    width: 95,
+    justifyContent: 'center',
+  },
+  colBurst: {
+    width: 75,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   colNum: {
-    width: 42,
+    width: 48,
     textAlign: 'center',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1404,16 +1559,31 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontSize: 8,
   },
-  priorityPill: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
+  priorityBox: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+    alignItems: 'center',
   },
-  priorityPillText: {
+  priorityBoxTitle: {
     color: '#FFA07A',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  priorityBoxSub: {
+    color: '#9CA3AF',
+    fontSize: 7,
+  },
+  tdBurstTotal: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+    fontFamily: FontFamilies.mono,
+  },
+  tdBurstRem: {
     fontSize: 8,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   metricsSummaryFooter: {
     flexDirection: 'row',
@@ -1437,7 +1607,7 @@ const styles = StyleSheet.create({
   summaryValue: {
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '800',
-    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    fontWeight: '600',
+    fontFamily: FontFamilies.mono,
   },
 });

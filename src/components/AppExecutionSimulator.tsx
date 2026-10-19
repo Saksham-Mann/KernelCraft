@@ -9,392 +9,359 @@ import {
   Platform,
 } from 'react-native';
 import { Colors } from '../theme/colors';
-import { Typography } from '../theme/typography';
+import { Typography, FontFamilies } from '../theme/typography';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-interface Choice {
+export interface StoryChoice {
   id: string;
-  label: string; // "Option A", "Option B", "Option C"
+  type: 'GOOD' | 'RISKY' | 'WRONG';
   text: string;
-  nextNodeId: string;
+  feedback?: string;
+  failureTitle?: string;
+  failureDetails?: string;
 }
 
-interface PipelineNode {
-  id: string;
-  stageNumber?: number;
-  stageName: string;
-  challenge: string;
-  subtext?: string;
-  icon: string;
+export interface StoryStage {
+  id: number;
+  stageNumber: number;
+  title: string;
+  story: string;
+  icon: keyof typeof Ionicons.glyphMap;
   accentColor: string;
-  choices: Choice[];
-  isTerminal?: boolean;
-  terminalType?: 'SUCCESS' | 'HALTED';
-  terminalTitle?: string;
-  terminalMessage?: string;
-  technicalDiagnostic?: string;
+  choices: StoryChoice[];
 }
 
-const PIPELINE_NODES: Record<string, PipelineNode> = {
-  NODE_COMPILATION: {
-    id: 'NODE_COMPILATION',
+const STORY_STAGES: StoryStage[] = [
+  {
+    id: 1,
     stageNumber: 1,
-    stageName: '1. Compilation',
-    challenge:
-      'You just wrote your mobile app code. How does the system convert human-readable code into instructions the machine understands?',
-    subtext: 'Phase: Source Code (.ts/.c) → Machine Bytecode',
-    icon: 'code-slash',
+    title: 'Translating Your Code',
+    story:
+      "You just finished writing your app. But the phone's chip only understands 1s and 0s, not human words. What do you do?",
+    icon: 'code-slash-outline',
     accentColor: '#34C759',
     choices: [
       {
-        id: 'OPT_COMPILER',
-        label: 'Option A',
-        text: 'Run through Compiler & Assembler to produce object bytecode',
-        nextNodeId: 'NODE_LINKING',
+        id: 's1_good',
+        type: 'GOOD',
+        text: 'Translate the code into machine numbers before installing the app.',
+        feedback:
+          'Great choice! The app is completely translated and ready to run at top speed.',
       },
       {
-        id: 'OPT_RAW_TEXT',
-        label: 'Option B',
-        text: 'Send raw text files directly to the CPU registers',
-        nextNodeId: 'HALTED_RAW_TEXT',
+        id: 's1_risky',
+        type: 'RISKY',
+        text: 'Do not translate beforehand; translate each line one-by-one while the user is using the app.',
+        feedback:
+          'The app works, but it takes forever to open and wastes battery because the phone has to translate on the go.',
       },
       {
-        id: 'OPT_IMAGE_CONTAINER',
-        label: 'Option C',
-        text: 'Wrap source code inside an image container',
-        nextNodeId: 'HALTED_IMAGE_WRAPPER',
+        id: 's1_wrong',
+        type: 'WRONG',
+        text: 'Feed the raw typed words directly into the processor chip.',
+        failureTitle: 'Processor Error: Cannot Understand Words',
+        failureDetails:
+          'The processor chip only reads electric numbers (1s and 0s). It crashed because it tried to read plain English letters.',
       },
     ],
   },
-  NODE_LINKING: {
-    id: 'NODE_LINKING',
+  {
+    id: 2,
     stageNumber: 2,
-    stageName: '2. Linking',
-    challenge:
-      'Your compiled object code needs math and UI graphics frameworks. How are external functions connected?',
-    subtext: 'Phase: Object Modules (.o) → Executable Binary',
-    icon: 'git-merge-outline',
+    title: 'Adding Extra Tools & Features',
+    story:
+      "Your app needs common features like 3D graphics and sound tools built by the phone maker. How do you include them?",
+    icon: 'cube-outline',
     accentColor: '#007AFF',
     choices: [
       {
-        id: 'OPT_LINKER_RESOLVE',
-        label: 'Option A',
-        text: 'Linker resolves symbols and packages shared libraries into a binary',
-        nextNodeId: 'NODE_LOADING',
+        id: 's2_good',
+        type: 'GOOD',
+        text: "Borrow the shared tools that are already built into the phone's operating system.",
+        feedback:
+          'Smart move! Your app stays tiny in size because it shares the tools already stored on the phone.',
       },
       {
-        id: 'OPT_ZIP_ARCHIVE',
-        label: 'Option B',
-        text: 'Compress everything into a ZIP file without resolving references',
-        nextNodeId: 'HALTED_UNRESOLVED_SYMBOL',
+        id: 's2_risky',
+        type: 'RISKY',
+        text: 'Pack an entire duplicate copy of every single tool inside your own app.',
+        feedback:
+          'The app works, but the file size is massive and takes up too much storage space on the phone.',
+      },
+      {
+        id: 's2_wrong',
+        type: 'WRONG',
+        text: 'Just pack the code files together without connecting them to any tools at all.',
+        failureTitle: 'Missing Tools: App Cannot Find Functions',
+        failureDetails:
+          'The app tried to draw buttons on the screen, but could not find the drawing tools because you forgot to connect them.',
       },
     ],
   },
-  NODE_LOADING: {
-    id: 'NODE_LOADING',
+  {
+    id: 3,
     stageNumber: 3,
-    stageName: '3. Memory Loading',
-    challenge:
-      'The executable binary is resting on flash storage. What brings it into active RAM?',
-    subtext: 'Phase: Storage Flash → Virtual Memory Pages',
-    icon: 'layers-outline',
+    title: 'Loading Into Fast Memory (RAM)',
+    story:
+      "The user tapped your app icon. The app is currently sitting on the storage drive, but the chip needs it inside fast working memory (RAM). How do you load it?",
+    icon: 'flash-outline',
     accentColor: '#AF52DE',
     choices: [
       {
-        id: 'OPT_OS_LOADER',
-        label: 'Option A',
-        text: 'OS Loader allocates memory space and maps binary segments into RAM',
-        nextNodeId: 'NODE_PRIVILEGE',
+        id: 's3_good',
+        type: 'GOOD',
+        text: 'Load only the parts the user needs right now, and load the rest as they browse.',
+        feedback:
+          "The app pops up almost instantly without hogging the phone's memory.",
       },
       {
-        id: 'OPT_GPU_DRAW',
-        label: 'Option B',
-        text: 'GPU draws the binary straight to the display buffer',
-        nextNodeId: 'HALTED_GPU_MISMATCH',
+        id: 's3_risky',
+        type: 'RISKY',
+        text: 'Force the phone to load the entire app and all its heavy files into memory all at once.',
+        feedback:
+          'The phone started lagging and had to close background apps because your app hogged all the available memory.',
+      },
+      {
+        id: 's3_wrong',
+        type: 'WRONG',
+        text: 'Tell the processor chip to run the app directly from the slow storage drive without using RAM.',
+        failureTitle: 'Hardware Freeze: Storage Is Too Slow',
+        failureDetails:
+          'The storage drive is way too slow to keep up with the processor. The chip gave up waiting and stopped the app.',
       },
     ],
   },
-  NODE_PRIVILEGE: {
-    id: 'NODE_PRIVILEGE',
+  {
+    id: 4,
     stageNumber: 4,
-    stageName: '4. Privilege Boundary',
-    challenge:
-      'The app is in RAM running in User Space, but needs to access the hardware camera. How does it cross the security boundary?',
-    subtext: 'Phase: User Mode (Ring 3) → Supervisor Kernel Mode (Ring 0)',
-    icon: 'shield-checkmark-outline',
+    title: 'Asking for Camera Permission',
+    story:
+      "Your app is running, but now it needs to open the camera lens. The phone has security rules to stop apps from spying. How do you get access?",
+    icon: 'camera-outline',
     accentColor: '#FF9500',
     choices: [
       {
-        id: 'OPT_SVC_SYSCALL',
-        label: 'Option A',
-        text: 'Execute an SVC Trap / System Call to request Kernel Space handling',
-        nextNodeId: 'NODE_SCHEDULING',
+        id: 's4_good',
+        type: 'GOOD',
+        text: "Politely ask the phone's operating system to check permissions and turn on the camera for you.",
+        feedback:
+          'Permission checked and verified! The system safely turns on the camera feed.',
       },
       {
-        id: 'OPT_DIRECT_HW_MANIP',
-        label: 'Option B',
-        text: 'Directly manipulate the camera hardware pins from User Space',
-        nextNodeId: 'HALTED_SIGSEGV',
+        id: 's4_risky',
+        type: 'RISKY',
+        text: 'Use an unverified background bridge to sneak a look at the camera.',
+        feedback:
+          'The camera turns on, but the video preview is choppy and delayed because it went through an unoptimized route.',
+      },
+      {
+        id: 's4_wrong',
+        type: 'WRONG',
+        text: 'Attempt to take direct control of the camera wires without asking the operating system.',
+        failureTitle: 'Security Block: Access Denied',
+        failureDetails:
+          "The phone's security guard blocked your app and shut it down because apps are never allowed to touch physical hardware wires directly.",
       },
     ],
   },
-  NODE_SCHEDULING: {
-    id: 'NODE_SCHEDULING',
+  {
+    id: 5,
     stageNumber: 5,
-    stageName: '5. CPU Scheduling',
-    challenge:
-      'The kernel accepted the request, but multiple background apps are competing for CPU cores. Who decides execution priority?',
-    subtext: 'Phase: Task Descriptors & Completely Fair Scheduler (CFS)',
-    icon: 'speedometer-outline',
+    title: "Sharing the Phone's Brain (CPU)",
+    story:
+      "The camera is live, music is playing in the background, and the user is tapping the screen. All these tasks need the processor at the same time. How do you share it?",
+    icon: 'hardware-chip-outline',
     accentColor: '#FF2D55',
     choices: [
       {
-        id: 'OPT_SCHEDULER_CFS',
-        label: 'Option A',
-        text: 'The CPU Scheduler allocates time slices via CFS / Priority Queues',
-        nextNodeId: 'TERMINAL_SUCCESS',
+        id: 's5_good',
+        type: 'GOOD',
+        text: 'Give touch responses top priority, and take quick turns with background apps so nothing freezes.',
+        feedback:
+          'Butter smooth! Screen touches feel instant and background music keeps playing without a hitch.',
       },
       {
-        id: 'OPT_MONOPOLY_CPU',
-        label: 'Option B',
-        text: 'First-installed app monopolizes the CPU permanently',
-        nextNodeId: 'HALTED_STARVATION',
+        id: 's5_risky',
+        type: 'RISKY',
+        text: 'Put your app into slow low-power mode to save battery.',
+        feedback:
+          'The app feels sluggish and delayed because other apps are getting all the processor time.',
+      },
+      {
+        id: 's5_wrong',
+        type: 'WRONG',
+        text: 'Force your app to hog the processor 100 percent of the time and refuse to let anyone else use it.',
+        failureTitle: 'System Crash: App Stopped Responding',
+        failureDetails:
+          'Your app froze the entire phone by refusing to share the processor. The operating system forced the app to close.',
       },
     ],
   },
+];
 
-  // Terminal Success Node (0 Choices)
-  TERMINAL_SUCCESS: {
-    id: 'TERMINAL_SUCCESS',
-    stageNumber: 6,
-    stageName: '6. Success',
-    challenge: 'Execution Pipeline Complete',
-    icon: 'checkmark-done-circle',
-    accentColor: '#34C759',
-    choices: [],
-    isTerminal: true,
-    terminalType: 'SUCCESS',
-    terminalTitle: 'SUCCESS: App Rendered on Display!',
-    terminalMessage:
-      'App rendered onto the display! Pipeline executed flawlessly. From human-readable source code to assembler bytecode, symbol linking, ELF segment loading, privileged SVC syscalls, and fair CPU time slices, the execution pipeline completed without a single fault.',
-    technicalDiagnostic:
-      'Return Code: 0 (EXIT_SUCCESS) • Graphics: 120 FPS SurfaceFlinger • MMU Privilege Ring Transitions: Verified • CPU Latency: < 4.2ms.',
-  },
-
-  // Dead-End Fault Nodes (0 Choices)
-  HALTED_RAW_TEXT: {
-    id: 'HALTED_RAW_TEXT',
-    stageName: 'Halted: CPU Fault',
-    challenge: 'Pipeline Halted at Instruction Decode',
-    icon: 'alert-circle',
-    accentColor: '#FF3B30',
-    choices: [],
-    isTerminal: true,
-    terminalType: 'HALTED',
-    terminalTitle: 'EXECUTION HALTED: CPU Instruction Trap',
-    terminalMessage:
-      'CPU registers execute binary machine code opcodes. Silicon logic gates cannot execute raw ASCII text files without a compilation and assembly pass. Backtrack to resolve the failure.',
-    technicalDiagnostic:
-      'Signal: SIGILL (Illegal Instruction) • Faulting address: 0x00000000 • Instruction decode unit failed on ASCII character sequence.',
-  },
-  HALTED_IMAGE_WRAPPER: {
-    id: 'HALTED_IMAGE_WRAPPER',
-    stageName: 'Halted: Format Error',
-    challenge: 'Pipeline Halted at Binary Validation',
-    icon: 'alert-circle',
-    accentColor: '#FF3B30',
-    choices: [],
-    isTerminal: true,
-    terminalType: 'HALTED',
-    terminalTitle: 'EXECUTION HALTED: Non-Executable Format',
-    terminalMessage:
-      'Image containers (PNG / JPEG) do not contain ELF / Mach-O executable header formats, data segments, or machine code instructions. Backtrack to resolve the failure.',
-    technicalDiagnostic:
-      'Error: ENOEXEC (Exec format error) • Missing magic number: 0x7F 0x45 0x4C 0x46 (.ELF).',
-  },
-  HALTED_UNRESOLVED_SYMBOL: {
-    id: 'HALTED_UNRESOLVED_SYMBOL',
-    stageName: 'Halted: Linker Panic',
-    challenge: 'Pipeline Halted at Symbol Resolution',
-    icon: 'alert-circle',
-    accentColor: '#FF3B30',
-    choices: [],
-    isTerminal: true,
-    terminalType: 'HALTED',
-    terminalTitle: 'EXECUTION HALTED: Unresolved External Symbol',
-    terminalMessage:
-      'Zipping files without a Linker leaves external framework calls and math functions undefined. The binary crashed with missing symbol references. Backtrack to resolve the failure.',
-    technicalDiagnostic:
-      'Linker Crash: ld: 14 unresolved external symbols (libc.so, libgui.so) • Execution vector points to NULL.',
-  },
-  HALTED_GPU_MISMATCH: {
-    id: 'HALTED_GPU_MISMATCH',
-    stageName: 'Halted: Architecture Fault',
-    challenge: 'Pipeline Halted at Bus Mapping',
-    icon: 'alert-circle',
-    accentColor: '#FF3B30',
-    choices: [],
-    isTerminal: true,
-    terminalType: 'HALTED',
-    terminalTitle: 'EXECUTION HALTED: Bus Architecture Failure',
-    terminalMessage:
-      'The GPU rasterizer processes vertex buffers and textures, not machine instructions. The OS Loader must allocate virtual memory in RAM and configure the page tables. Backtrack to resolve the failure.',
-    technicalDiagnostic:
-      'Hardware Bus Error: Attempted DMA of executable text segment to display scanout buffer.',
-  },
-  HALTED_SIGSEGV: {
-    id: 'HALTED_SIGSEGV',
-    stageName: 'Halted: Privilege Violation',
-    challenge: 'Pipeline Halted at Hardware Boundary',
-    icon: 'alert-circle',
-    accentColor: '#FF3B30',
-    choices: [],
-    isTerminal: true,
-    terminalType: 'HALTED',
-    terminalTitle: 'EXECUTION HALTED: Kernel Panic / SIGSEGV',
-    terminalMessage:
-      'Segmentation Fault (SIGSEGV)! User Space (Ring 3) processes are hardware-isolated by the MMU from direct MMIO pin writes. All hardware access must use privileged Supervisor Calls (SVC). Backtrack to resolve the failure.',
-    technicalDiagnostic:
-      'Trap: SIGSEGV (Faulting MMIO addr: 0xFF021000) • Privilege violation: User mode attempted privileged hardware register write.',
-  },
-  HALTED_STARVATION: {
-    id: 'HALTED_STARVATION',
-    stageName: 'Halted: CPU Lockup',
-    challenge: 'Pipeline Halted at Task Scheduling',
-    icon: 'alert-circle',
-    accentColor: '#FF3B30',
-    choices: [],
-    isTerminal: true,
-    terminalType: 'HALTED',
-    terminalTitle: 'EXECUTION HALTED: Thread Starvation & Freeze',
-    terminalMessage:
-      'Monopolizing CPU cores permanently starves UI and audio threads. The kernel hardware watchdog timer detected a soft-lockup and terminated the process. Backtrack to resolve the failure.',
-    technicalDiagnostic:
-      'Kernel Panic: Watchdog soft-lockup on CPU #0 • Thread starvation detected • ANR threshold exceeded (> 5000ms).',
-  },
-};
-
-interface HistoryItem {
-  nodeId: string;
-  chosenOptionId?: string;
-  chosenText?: string;
+function shuffleArray<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
 }
 
 export const AppExecutionSimulator: React.FC = () => {
-  const [history, setHistory] = useState<HistoryItem[]>([
-    { nodeId: 'NODE_COMPILATION' },
-  ]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentStageIndex, setCurrentStageIndex] = useState(0);
+  const [shuffledChoices, setShuffledChoices] = useState<StoryChoice[]>(() =>
+    shuffleArray(STORY_STAGES[0].choices)
+  );
+  const [failedChoiceIds, setFailedChoiceIds] = useState<string[]>([]);
+  const [mode, setMode] = useState<'QUESTION' | 'FAILURE' | 'OUTCOME' | 'FINISH'>('QUESTION');
+  const [activeFailureChoice, setActiveFailureChoice] = useState<StoryChoice | null>(null);
+  const [selectedOutcome, setSelectedOutcome] = useState<StoryChoice | null>(null);
+  const [backtrackCount, setBacktrackCount] = useState(0);
+  const [stageDecisions, setStageDecisions] = useState<
+    Array<{ stageIndex: number; choice: StoryChoice }>
+  >([]);
 
-  const cardFadeAnim = useRef(new Animated.Value(1)).current;
-  const cardScaleAnim = useRef(new Animated.Value(1)).current;
+  // Smooth animation values
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  const currentItem = history[currentIndex] || history[0];
-  const currentNode = PIPELINE_NODES[currentItem.nodeId] || PIPELINE_NODES.NODE_COMPILATION;
+  const currentStage = STORY_STAGES[currentStageIndex];
 
-  // Animate node card on change
-  useEffect(() => {
-    cardFadeAnim.setValue(0.8);
-    cardScaleAnim.setValue(0.97);
-
+  const animateTransition = (callback: () => void) => {
     Animated.parallel([
-      Animated.timing(cardFadeAnim, {
-        toValue: 1,
-        duration: 200,
+      Animated.timing(fadeAnim, {
+        toValue: 0.1,
+        duration: 120,
         useNativeDriver: true,
       }),
-      Animated.spring(cardScaleAnim, {
-        toValue: 1,
-        friction: 7,
+      Animated.timing(scaleAnim, {
+        toValue: 0.98,
+        duration: 120,
         useNativeDriver: true,
       }),
-    ]).start();
-  }, [currentIndex, currentItem.nodeId]);
+    ]).start(() => {
+      callback();
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  };
 
-  // Click an option: immediately advances to next node without revealing correctness.
-  // If backtracking and selecting a different choice, PRUNE all subsequent steps.
-  const handleSelectChoice = (choice: Choice) => {
+  // Choice Selection
+  const handleSelectChoice = (choice: StoryChoice) => {
+    if (failedChoiceIds.includes(choice.id)) {
+      return;
+    }
+
+    if (Platform.OS !== 'web') {
+      try {
+        Haptics.impactAsync(
+          choice.type === 'WRONG'
+            ? Haptics.ImpactFeedbackStyle.Heavy
+            : Haptics.ImpactFeedbackStyle.Medium
+        );
+      } catch (e) {}
+    }
+
+    if (choice.type === 'WRONG') {
+      setBacktrackCount((prev) => prev + 1);
+      setFailedChoiceIds((prev) => [...prev, choice.id]);
+      setActiveFailureChoice(choice);
+      animateTransition(() => {
+        setMode('FAILURE');
+      });
+    } else {
+      setSelectedOutcome(choice);
+      setStageDecisions((prev) => [
+        ...prev.filter((d) => d.stageIndex !== currentStageIndex),
+        { stageIndex: currentStageIndex, choice },
+      ]);
+      animateTransition(() => {
+        setMode('OUTCOME');
+      });
+    }
+  };
+
+  // Backtrack from failure
+  const handleBacktrack = () => {
+    if (Platform.OS !== 'web') {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (e) {}
+    }
+    animateTransition(() => {
+      setActiveFailureChoice(null);
+      setMode('QUESTION');
+    });
+  };
+
+  // Advance from outcome to next stage or finish
+  const handleContinue = () => {
+    if (Platform.OS !== 'web') {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (e) {}
+    }
+
+    if (currentStageIndex < STORY_STAGES.length - 1) {
+      const nextIndex = currentStageIndex + 1;
+      animateTransition(() => {
+        setCurrentStageIndex(nextIndex);
+        setShuffledChoices(shuffleArray(STORY_STAGES[nextIndex].choices));
+        setFailedChoiceIds([]);
+        setSelectedOutcome(null);
+        setMode('QUESTION');
+      });
+    } else {
+      animateTransition(() => {
+        setMode('FINISH');
+      });
+    }
+  };
+
+  // Restart Entire Story Game
+  const handleRestart = () => {
     if (Platform.OS !== 'web') {
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } catch (e) {}
     }
-
-    // Prune subsequent history steps after currentIndex
-    const prunedHistory = history.slice(0, currentIndex);
-
-    // Record chosen option for current node
-    prunedHistory.push({
-      nodeId: currentNode.id,
-      chosenOptionId: choice.id,
-      chosenText: choice.text,
+    animateTransition(() => {
+      setCurrentStageIndex(0);
+      setShuffledChoices(shuffleArray(STORY_STAGES[0].choices));
+      setFailedChoiceIds([]);
+      setMode('QUESTION');
+      setActiveFailureChoice(null);
+      setSelectedOutcome(null);
+      setBacktrackCount(0);
+      setStageDecisions([]);
     });
-
-    // Advance to chosen next node
-    prunedHistory.push({
-      nodeId: choice.nextNodeId,
-    });
-
-    setHistory(prunedHistory);
-    setCurrentIndex(prunedHistory.length - 1);
   };
 
-  // Back Navigation
-  const handleBack = () => {
-    if (currentIndex > 0) {
-      if (Platform.OS !== 'web') {
-        try {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        } catch (e) {}
-      }
-      setCurrentIndex(currentIndex - 1);
-    }
-  };
-
-  // Forward Navigation (if available)
-  const handleForward = () => {
-    if (currentIndex < history.length - 1) {
-      if (Platform.OS !== 'web') {
-        try {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        } catch (e) {}
-      }
-      setCurrentIndex(currentIndex + 1);
-    }
-  };
-
-  // Jump to specific breadcrumb
-  const handleJumpToStep = (index: number) => {
-    if (index >= 0 && index < history.length) {
-      if (Platform.OS !== 'web') {
-        try {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        } catch (e) {}
-      }
-      setCurrentIndex(index);
-    }
-  };
-
-  // Reset entire pipeline
-  const handleRestart = () => {
-    setHistory([{ nodeId: 'NODE_COMPILATION' }]);
-    setCurrentIndex(0);
-  };
-
-  const isTerminal = currentNode.isTerminal || currentNode.choices.length === 0;
+  const optionLabels = ['Option A', 'Option B', 'Option C'];
 
   return (
     <View style={styles.container}>
-      {/* Title & Pipeline Header */}
+      {/* Top Header */}
       <View style={styles.header}>
         <View style={styles.headerTitleRow}>
           <View style={styles.headerBadge}>
-            <Ionicons name="git-branch-outline" size={16} color="#FFFFFF" />
+            <Ionicons name="play" size={16} color="#FFFFFF" />
           </View>
           <View>
-            <Text style={styles.headerTitle}>APP EXECUTION PIPELINE</Text>
-            <Text style={styles.headerSubtitle}>INTERACTIVE COMPUTER SCIENCE DECISION TREE</Text>
+            <Text style={styles.headerTitle}>APP EXECUTION STORY</Text>
+            <Text style={styles.headerSubtitle}>INTERACTIVE JOURNEY FROM CODE TO HARDWARE</Text>
           </View>
         </View>
 
@@ -404,251 +371,393 @@ export const AppExecutionSimulator: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Visual Execution Breadcrumb Timeline */}
+      {/* 5-Stage Step Indicator */}
       <View style={styles.timelineCard}>
-        <Text style={styles.timelineLabel}>PIPELINE EXECUTION TIMELINE:</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.breadcrumbList}
-        >
-          {history.map((item, idx) => {
-            const node = PIPELINE_NODES[item.nodeId];
-            const isCurrent = idx === currentIndex;
-            const isTerminalNode = node?.isTerminal;
+        <View style={styles.timelineHeaderRow}>
+          <Text style={styles.timelineLabel}>STORY PROGRESSION</Text>
+          <Text style={styles.backtrackCounterText}>
+            Backtracks: {backtrackCount}
+          </Text>
+        </View>
+
+        <View style={styles.stagePillsRow}>
+          {STORY_STAGES.map((stg, idx) => {
+            const isCompleted = idx < currentStageIndex || mode === 'FINISH';
+            const isCurrent = idx === currentStageIndex && mode !== 'FINISH';
 
             return (
-              <React.Fragment key={`${item.nodeId}-${idx}`}>
-                <TouchableOpacity
+              <View
+                key={stg.id}
+                style={[
+                  styles.stageStepPill,
+                  isCurrent && {
+                    borderColor: stg.accentColor,
+                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  },
+                  isCompleted && styles.stageStepPillCompleted,
+                ]}
+              >
+                <View
                   style={[
-                    styles.breadcrumbChip,
-                    isCurrent && {
-                      borderColor: node?.accentColor || Colors.studioOrange,
-                      backgroundColor: 'rgba(221, 86, 34, 0.2)',
-                    },
-                    isTerminalNode && {
-                      borderColor: node.terminalType === 'SUCCESS' ? '#34C759' : '#FF3B30',
-                    },
+                    styles.stepNumberBadge,
+                    isCompleted && styles.stepNumberBadgeCompleted,
+                    isCurrent && { backgroundColor: stg.accentColor },
                   ]}
-                  onPress={() => handleJumpToStep(idx)}
-                  activeOpacity={0.7}
                 >
-                  <View
-                    style={[
-                      styles.chipDot,
-                      {
-                        backgroundColor: isTerminalNode
-                          ? node.terminalType === 'SUCCESS'
-                            ? '#34C759'
-                            : '#FF3B30'
-                          : isCurrent
-                          ? node?.accentColor
-                          : 'rgba(255, 255, 255, 0.4)',
-                      },
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.chipText,
-                      isCurrent && { color: '#FFFFFF', fontWeight: '800' },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {node?.stageName || `Node ${idx + 1}`}
-                  </Text>
-                </TouchableOpacity>
-
-                {idx < history.length - 1 && (
-                  <View style={styles.breadcrumbArrow}>
-                    <Ionicons name="chevron-forward" size={12} color="rgba(255, 255, 255, 0.3)" />
-                  </View>
-                )}
-              </React.Fragment>
+                  {isCompleted ? (
+                    <Ionicons name="checkmark" size={11} color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.stepNumberText}>{stg.stageNumber}</Text>
+                  )}
+                </View>
+                <Text
+                  style={[
+                    styles.stageStepLabel,
+                    isCurrent && { color: '#FFFFFF', fontWeight: '700' },
+                  ]}
+                  numberOfLines={1}
+                >
+                  Stage {stg.stageNumber}
+                </Text>
+              </View>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
 
-      {/* Main Interactive Stage Box */}
+      {/* Main Animated Content Box */}
       <Animated.View
         style={[
-          styles.stageBox,
+          styles.mainCard,
           {
-            opacity: cardFadeAnim,
-            transform: [{ scale: cardScaleAnim }],
-            borderColor: currentNode.accentColor || Colors.studioOrange,
+            opacity: fadeAnim,
+            transform: [{ scale: scaleAnim }],
           },
         ]}
       >
-        {/* Stage Status Bar */}
-        <View style={styles.stageStatusRow}>
-          <View style={[styles.stageBadge, { backgroundColor: currentNode.accentColor }]}>
-            <Ionicons name={currentNode.icon as any} size={15} color="#FFFFFF" />
-            <Text style={styles.stageBadgeText}>
-              {currentNode.stageNumber
-                ? `STAGE ${currentNode.stageNumber} OF 5`
-                : currentNode.stageName.toUpperCase()}
-            </Text>
-          </View>
-          {currentNode.subtext && (
-            <Text style={styles.subtextTag} numberOfLines={1}>
-              {currentNode.subtext}
-            </Text>
-          )}
-        </View>
+        {/* ================================================================ */}
+        {/* VIEW 1: QUESTION MODE                                            */}
+        {/* ================================================================ */}
+        {mode === 'QUESTION' && (
+          <View style={styles.stageContent}>
+            {/* Stage Title Banner */}
+            <View style={styles.stageHeaderRow}>
+              <View style={[styles.stageIconBox, { backgroundColor: currentStage.accentColor }]}>
+                <Ionicons name={currentStage.icon} size={18} color="#FFFFFF" />
+              </View>
+              <View style={styles.stageHeaderTextCol}>
+                <Text style={styles.stageCategoryTag}>
+                  STAGE {currentStage.stageNumber} OF 5
+                </Text>
+                <Text style={styles.stageTitleText}>{currentStage.title}</Text>
+              </View>
+            </View>
 
-        {/* ============================================================== */}
-        {/* NON-TERMINAL NODE: CHALLENGE & CHOICES                         */}
-        {/* ============================================================== */}
-        {!isTerminal && (
-          <View style={styles.challengeWrap}>
-            <Text style={styles.challengeTitle}>{currentNode.challenge}</Text>
+            {/* Story Card */}
+            <View style={styles.storyCard}>
+              <Text style={styles.storyCardLabel}>THE CHALLENGE</Text>
+              <Text style={styles.storyText}>{currentStage.story}</Text>
+            </View>
 
-            <Text style={styles.selectPrompt}>
-              Select the correct computer science operation to advance:
+            <Text style={styles.instructionPrompt}>
+              Choose how your app should handle this situation:
             </Text>
 
-            {/* Decision Choices (1 to 3 options) */}
+            {/* Randomized Choices */}
             <View style={styles.choicesList}>
-              {currentNode.choices.map((choice) => (
-                <TouchableOpacity
-                  key={choice.id}
-                  style={styles.choiceCard}
-                  onPress={() => handleSelectChoice(choice)}
-                  activeOpacity={0.75}
-                >
-                  <View style={styles.choiceHeaderRow}>
-                    <View style={styles.optionPill}>
-                      <Text style={styles.optionPillText}>{choice.label}</Text>
+              {shuffledChoices.map((choice, index) => {
+                const isFailed = failedChoiceIds.includes(choice.id);
+
+                return (
+                  <TouchableOpacity
+                    key={choice.id}
+                    style={[
+                      styles.choiceCard,
+                      isFailed && styles.choiceCardFailed,
+                    ]}
+                    onPress={() => handleSelectChoice(choice)}
+                    activeOpacity={isFailed ? 1 : 0.75}
+                  >
+                    <View style={styles.choiceTopRow}>
+                      <View
+                        style={[
+                          styles.optionPill,
+                          isFailed && styles.optionPillFailed,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.optionPillText,
+                            isFailed && { color: '#FF453A' },
+                          ]}
+                        >
+                          {optionLabels[index]}
+                        </Text>
+                      </View>
+
+                      {isFailed ? (
+                        <View style={styles.failedStatusBadge}>
+                          <Ionicons name="close" size={13} color="#FF453A" />
+                          <Text style={styles.failedStatusText}>Crashed the app</Text>
+                        </View>
+                      ) : (
+                        <Ionicons
+                          name="chevron-forward-circle-outline"
+                          size={20}
+                          color="rgba(255, 255, 255, 0.4)"
+                        />
+                      )}
                     </View>
-                    <Ionicons name="arrow-forward-circle" size={20} color="#FFA07A" />
-                  </View>
-                  <Text style={styles.choiceBodyText}>{choice.text}</Text>
-                </TouchableOpacity>
-              ))}
+
+                    <Text
+                      style={[
+                        styles.choiceText,
+                        isFailed && styles.choiceTextFailed,
+                      ]}
+                    >
+                      {choice.text}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
         )}
 
-        {/* ============================================================== */}
-        {/* TERMINAL OUTCOME NODE (0 CHOICES)                              */}
-        {/* ============================================================== */}
-        {isTerminal && (
-          <View style={styles.terminalContainer}>
+        {/* ================================================================ */}
+        {/* VIEW 2: FAILURE SCREEN (MISTAKE / CRASH)                         */}
+        {/* ================================================================ */}
+        {mode === 'FAILURE' && activeFailureChoice && (
+          <View style={styles.failureContainer}>
+            <View style={styles.failureCard}>
+              <View style={styles.failureIconWrap}>
+                <Ionicons name="alert-circle-outline" size={38} color="#FF3B30" />
+              </View>
+
+              <View style={styles.failureTextWrap}>
+                <View style={styles.failureAlertBadge}>
+                  <Text style={styles.failureAlertText}>PROGRAM HALTED</Text>
+                </View>
+
+                <Text style={styles.failureTitleText}>
+                  {activeFailureChoice.failureTitle}
+                </Text>
+
+                <Text style={styles.failureDetailsText}>
+                  {activeFailureChoice.failureDetails}
+                </Text>
+              </View>
+
+              {/* Single Backtrack Button as required */}
+              <TouchableOpacity
+                style={styles.backtrackButton}
+                onPress={handleBacktrack}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="arrow-back" size={18} color="#FFFFFF" />
+                <Text style={styles.backtrackButtonText}>
+                  Backtrack & Choose Another Option
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* ================================================================ */}
+        {/* VIEW 3: OUTCOME SCREEN (SUCCESS OR RISKY WARNING)                */}
+        {/* ================================================================ */}
+        {mode === 'OUTCOME' && selectedOutcome && (
+          <View style={styles.outcomeContainer}>
             <View
               style={[
-                styles.terminalCard,
-                currentNode.terminalType === 'SUCCESS'
-                  ? styles.terminalSuccessCard
-                  : styles.terminalHaltedCard,
+                styles.outcomeCard,
+                selectedOutcome.type === 'GOOD'
+                  ? styles.outcomeCardGood
+                  : styles.outcomeCardRisky,
               ]}
             >
-              <View style={styles.terminalIconRow}>
-                <Ionicons
-                  name={
-                    currentNode.terminalType === 'SUCCESS'
-                      ? 'checkmark-circle'
-                      : 'close-circle'
-                  }
-                  size={42}
-                  color={currentNode.terminalType === 'SUCCESS' ? '#34C759' : '#FF3B30'}
-                />
+              <View style={styles.outcomeHeaderRow}>
+                <View
+                  style={[
+                    styles.outcomeIconWrap,
+                    {
+                      backgroundColor:
+                        selectedOutcome.type === 'GOOD'
+                          ? 'rgba(52, 199, 89, 0.2)'
+                          : 'rgba(245, 158, 11, 0.2)',
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={
+                      selectedOutcome.type === 'GOOD'
+                        ? 'checkmark-circle-outline'
+                        : 'warning-outline'
+                    }
+                    size={28}
+                    color={selectedOutcome.type === 'GOOD' ? '#34C759' : '#F59E0B'}
+                  />
+                </View>
+
                 <View style={{ flex: 1 }}>
-                  <Text
+                  <View
                     style={[
-                      styles.terminalTitle,
+                      styles.outcomeTypePill,
                       {
-                        color:
-                          currentNode.terminalType === 'SUCCESS' ? '#34C759' : '#FF453A',
+                        backgroundColor:
+                          selectedOutcome.type === 'GOOD' ? '#34C759' : '#F59E0B',
                       },
                     ]}
                   >
-                    {currentNode.terminalTitle}
+                    <Text style={styles.outcomeTypePillText}>
+                      {selectedOutcome.type === 'GOOD' ? 'OPTIMAL PATH' : 'SUB-OPTIMAL PATH'}
+                    </Text>
+                  </View>
+                  <Text style={styles.outcomeTitleText}>
+                    {selectedOutcome.type === 'GOOD' ? 'Execution Succeeded' : 'Notice: Potential Lag'}
                   </Text>
-                  <Text style={styles.terminalMessage}>{currentNode.terminalMessage}</Text>
                 </View>
               </View>
 
-              {/* Technical Diagnostic Terminal Box */}
-              <View style={styles.diagnosticBox}>
-                <View style={styles.diagnosticHeader}>
-                  <Ionicons name="terminal-outline" size={13} color="#00E5FF" />
-                  <Text style={styles.diagnosticHeaderText}>KERNEL DIAGNOSTIC LOG</Text>
-                </View>
-                <Text style={styles.diagnosticText}>{currentNode.technicalDiagnostic}</Text>
+              <View style={styles.outcomeTextBox}>
+                <Text style={styles.outcomeFeedbackText}>
+                  {selectedOutcome.feedback}
+                </Text>
               </View>
 
-              {/* Terminal Rewind Action */}
-              <View style={styles.terminalActionRow}>
-                <TouchableOpacity
-                  style={styles.backtrackBtn}
-                  onPress={handleBack}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="arrow-back" size={16} color="#FFFFFF" />
-                  <Text style={styles.backtrackBtnText}>↺ BACKTRACK & CHOOSE ALTERNATE PATH</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={[
+                  styles.continueButton,
+                  {
+                    backgroundColor:
+                      selectedOutcome.type === 'GOOD' ? '#34C759' : '#DD5622',
+                  },
+                ]}
+                onPress={handleContinue}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.continueButtonText}>
+                  {currentStageIndex === 4
+                    ? 'View Final App Report'
+                    : selectedOutcome.type === 'GOOD'
+                    ? 'Continue to Next Stage'
+                    : 'Continue with Warning'}
+                </Text>
+                <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
             </View>
           </View>
         )}
+
+        {/* ================================================================ */}
+        {/* VIEW 4: FINISH SCREEN (SCORECARD & RESTART)                      */}
+        {/* ================================================================ */}
+        {mode === 'FINISH' && (
+          <View style={styles.finishContainer}>
+            {/* Scorecard Header */}
+            <View style={styles.scorecardHero}>
+              <View style={styles.trophyIconWrap}>
+                <Ionicons name="ribbon-outline" size={36} color="#FFA07A" />
+              </View>
+
+              {backtrackCount === 0 && (
+                <View style={styles.scorecardBadge}>
+                  <Text style={styles.scorecardBadgeText}>ZERO BACKTRACKS</Text>
+                </View>
+              )}
+
+              {backtrackCount >= 1 && backtrackCount <= 2 && (
+                <View style={[styles.scorecardBadge, { backgroundColor: '#007AFF' }]}>
+                  <Text style={styles.scorecardBadgeText}>
+                    {backtrackCount} BACKTRACK{backtrackCount > 1 ? 'S' : ''}
+                  </Text>
+                </View>
+              )}
+
+              {backtrackCount >= 3 && (
+                <View style={[styles.scorecardBadge, { backgroundColor: '#F59E0B' }]}>
+                  <Text style={styles.scorecardBadgeText}>
+                    {backtrackCount} BACKTRACKS
+                  </Text>
+                </View>
+              )}
+
+              <Text style={styles.scorecardTitle}>
+                {backtrackCount === 0 && 'Master Builder'}
+                {backtrackCount >= 1 && backtrackCount <= 2 && 'Skilled Fixer'}
+                {backtrackCount >= 3 && 'App Survivor'}
+              </Text>
+
+              <Text style={styles.scorecardSubtitle}>
+                {backtrackCount === 0 &&
+                  'Your app ran perfectly on the first try without any crashes.'}
+                {backtrackCount >= 1 &&
+                  backtrackCount <= 2 &&
+                  'You ran into minor issues, but successfully resolved them.'}
+                {backtrackCount >= 3 &&
+                  'You crashed the phone multiple times, but learned how to bring it back to life.'}
+              </Text>
+            </View>
+
+            {/* Stage Path Breakdown */}
+            <View style={styles.recapList}>
+              <Text style={styles.recapHeaderLabel}>YOUR APP EXECUTION ROUTE:</Text>
+              {STORY_STAGES.map((stg) => {
+                const decision = stageDecisions.find((d) => d.stageIndex === stg.id - 1);
+                const isGood = decision?.choice.type === 'GOOD';
+
+                return (
+                  <View key={stg.id} style={styles.recapItem}>
+                    <View
+                      style={[
+                        styles.recapDot,
+                        { backgroundColor: isGood ? '#34C759' : '#F59E0B' },
+                      ]}
+                    />
+                    <View style={styles.recapTextWrap}>
+                      <Text style={styles.recapStageTitle}>
+                        {stg.stageNumber}. {stg.title}
+                      </Text>
+                      <Text style={styles.recapChoiceText} numberOfLines={2}>
+                        {decision ? decision.choice.text : 'Completed'}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.recapBadge,
+                        {
+                          backgroundColor: isGood
+                            ? 'rgba(52, 199, 89, 0.15)'
+                            : 'rgba(245, 158, 11, 0.15)',
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.recapBadgeText,
+                          { color: isGood ? '#34C759' : '#F59E0B' },
+                        ]}
+                      >
+                        {isGood ? 'Optimal' : 'Risky'}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+
+            {/* Restart Button as required */}
+            <TouchableOpacity
+              style={styles.restartMainBtn}
+              onPress={handleRestart}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="refresh" size={18} color="#FFFFFF" />
+              <Text style={styles.restartMainBtnText}>Try a Different Path</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </Animated.View>
-
-      {/* Persistent Navigation Controls (< Back / Forward >) */}
-      <View style={styles.navBar}>
-        <TouchableOpacity
-          style={[styles.navBtn, currentIndex === 0 && styles.navBtnDisabled]}
-          onPress={handleBack}
-          disabled={currentIndex === 0}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name="chevron-back"
-            size={16}
-            color={currentIndex === 0 ? 'rgba(255, 255, 255, 0.25)' : '#FFFFFF'}
-          />
-          <Text
-            style={[
-              styles.navBtnText,
-              currentIndex === 0 && { color: 'rgba(255, 255, 255, 0.25)' },
-            ]}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
-
-        <Text style={styles.navStatusText}>
-          Step {currentIndex + 1} of {history.length}
-        </Text>
-
-        <TouchableOpacity
-          style={[
-            styles.navBtn,
-            currentIndex >= history.length - 1 && styles.navBtnDisabled,
-          ]}
-          onPress={handleForward}
-          disabled={currentIndex >= history.length - 1}
-          activeOpacity={0.8}
-        >
-          <Text
-            style={[
-              styles.navBtnText,
-              currentIndex >= history.length - 1 && {
-                color: 'rgba(255, 255, 255, 0.25)',
-              },
-            ]}
-          >
-            Forward
-          </Text>
-          <Ionicons
-            name="chevron-forward"
-            size={16}
-            color={
-              currentIndex >= history.length - 1 ? 'rgba(255, 255, 255, 0.25)' : '#FFFFFF'
-            }
-          />
-        </TouchableOpacity>
-      </View>
     </View>
   );
 };
@@ -682,130 +791,181 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    ...Typography.subhead,
+    fontFamily: FontFamilies.sans,
     color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0.8,
   },
   headerSubtitle: {
-    ...Typography.tag,
+    fontFamily: FontFamilies.sans,
     color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 8,
+    fontSize: 9,
     marginTop: 2,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   restartBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(221, 86, 34, 0.15)',
+    gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(221, 86, 34, 0.35)',
-  },
-  restartBtnText: {
-    ...Typography.tag,
-    color: '#FFA07A',
-    fontSize: 9,
-    fontWeight: '800',
-  },
-  timelineCard: {
-    backgroundColor: '#0D0D14',
     borderRadius: 14,
-    padding: 10,
-    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  timelineLabel: {
-    ...Typography.tag,
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  breadcrumbList: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  breadcrumbChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
-  chipDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  chipText: {
-    ...Typography.tag,
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  breadcrumbArrow: {
-    paddingHorizontal: 2,
-  },
-  stageBox: {
-    backgroundColor: '#181828',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1.5,
-    gap: 14,
-  },
-  stageStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  stageBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-  },
-  stageBadgeText: {
-    ...Typography.tag,
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  subtextTag: {
-    ...Typography.tag,
-    color: 'rgba(255, 255, 255, 0.55)',
-    fontSize: 9,
-    maxWidth: '55%',
-  },
-  challengeWrap: {
-    gap: 12,
-  },
-  challengeTitle: {
-    ...Typography.headline,
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
-    lineHeight: 23,
-  },
-  selectPrompt: {
-    ...Typography.tag,
+  restartBtnText: {
+    fontFamily: FontFamilies.sans,
     color: '#FFA07A',
     fontSize: 10,
     fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+
+  /* Timeline */
+  timelineCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    gap: 8,
+  },
+  timelineHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  timelineLabel: {
+    fontFamily: FontFamilies.sans,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  backtrackCounterText: {
+    fontFamily: FontFamilies.mono,
+    color: '#FFA07A',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  stagePillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  stageStepPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  stageStepPillCompleted: {
+    backgroundColor: 'rgba(52, 199, 89, 0.08)',
+    borderColor: 'rgba(52, 199, 89, 0.3)',
+  },
+  stepNumberBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stepNumberBadgeCompleted: {
+    backgroundColor: '#34C759',
+  },
+  stepNumberText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  stageStepLabel: {
+    fontFamily: FontFamilies.sans,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  /* Main Card */
+  mainCard: {
+    backgroundColor: '#161626',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+
+  /* Question Stage */
+  stageContent: {
+    gap: 14,
+  },
+  stageHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  stageIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stageHeaderTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  stageCategoryTag: {
+    fontFamily: FontFamilies.sans,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  stageTitleText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  storyCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 14,
+    padding: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.studioOrange,
+    gap: 4,
+  },
+  storyCardLabel: {
+    fontFamily: FontFamilies.sans,
+    color: Colors.studioOrange,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  storyText: {
+    fontFamily: FontFamilies.sans,
+    color: '#E5E7EB',
+    fontSize: 13.5,
+    lineHeight: 20,
+    fontWeight: '400',
+  },
+  instructionPrompt: {
+    fontFamily: FontFamilies.sans,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 12,
+    fontWeight: '600',
   },
   choicesList: {
     gap: 10,
@@ -815,146 +975,332 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     gap: 8,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
-  choiceHeaderRow: {
+  choiceCardFailed: {
+    borderColor: '#EF4444',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+  },
+  choiceTopRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
   },
   optionPill: {
-    backgroundColor: 'rgba(221, 86, 34, 0.25)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  optionPillFailed: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
   },
   optionPillText: {
-    ...Typography.tag,
-    color: '#FFA07A',
+    fontFamily: FontFamilies.sans,
+    color: 'rgba(255, 255, 255, 0.85)',
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
-  choiceBodyText: {
-    ...Typography.body,
-    color: '#FFFFFF',
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '600',
-  },
-  terminalContainer: {
-    gap: 12,
-  },
-  terminalCard: {
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 2,
-    gap: 12,
-  },
-  terminalSuccessCard: {
-    backgroundColor: 'rgba(52, 199, 89, 0.1)',
-    borderColor: '#34C759',
-  },
-  terminalHaltedCard: {
-    backgroundColor: 'rgba(255, 59, 48, 0.1)',
-    borderColor: '#FF3B30',
-  },
-  terminalIconRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  terminalTitle: {
-    ...Typography.headline,
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  terminalMessage: {
-    ...Typography.body,
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  diagnosticBox: {
-    backgroundColor: '#0A0A12',
-    borderRadius: 10,
-    padding: 10,
-    gap: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 229, 255, 0.3)',
-  },
-  diagnosticHeader: {
+  failedStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
   },
-  diagnosticHeaderText: {
-    ...Typography.tag,
-    color: '#00E5FF',
+  failedStatusText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FF453A',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  choiceText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  choiceTextFailed: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    textDecorationLine: 'line-through',
+  },
+
+  /* Failure Screen */
+  failureContainer: {
+    paddingVertical: 8,
+  },
+  failureCard: {
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1.5,
+    borderColor: '#EF4444',
+    alignItems: 'center',
+    gap: 14,
+  },
+  failureIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  failureTextWrap: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  failureAlertBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  failureAlertText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FF453A',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  failureTitleText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  failureDetailsText: {
+    fontFamily: FontFamilies.sans,
+    color: '#E5E7EB',
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    fontWeight: '400',
+  },
+  backtrackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#EF4444',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    marginTop: 4,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
+  },
+  backtrackButtonText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  /* Outcome Screen */
+  outcomeContainer: {
+    paddingVertical: 8,
+  },
+  outcomeCard: {
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1.5,
+    gap: 14,
+  },
+  outcomeCardGood: {
+    backgroundColor: 'rgba(52, 199, 89, 0.08)',
+    borderColor: '#34C759',
+  },
+  outcomeCardRisky: {
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderColor: '#F59E0B',
+  },
+  outcomeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  outcomeIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  outcomeTypePill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginBottom: 3,
+  },
+  outcomeTypePillText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-  diagnosticText: {
-    ...Typography.tag,
-    color: '#E0E0E0',
-    fontSize: 10,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    lineHeight: 15,
+  outcomeTitleText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
-  terminalActionRow: {
-    marginTop: 4,
-  },
-  backtrackBtn: {
-    backgroundColor: '#DD5622',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+  outcomeTextBox: {
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
     borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  outcomeFeedbackText: {
+    fontFamily: FontFamilies.sans,
+    color: '#E5E7EB',
+    fontSize: 13.5,
+    lineHeight: 20,
+    fontWeight: '400',
+  },
+  continueButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
     gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    marginTop: 2,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
-  backtrackBtnText: {
-    ...Typography.tag,
+  continueButtonText: {
+    fontFamily: FontFamilies.sans,
     color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    fontSize: 13,
+    fontWeight: '700',
   },
-  navBar: {
-    flexDirection: 'row',
+
+  /* Finish Screen */
+  finishContainer: {
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 4,
+    gap: 16,
+    paddingVertical: 6,
   },
-  navBtn: {
-    flexDirection: 'row',
+  scorecardHero: {
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingVertical: 9,
-    paddingHorizontal: 16,
+    gap: 8,
+    paddingHorizontal: 10,
+  },
+  trophyIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(221, 86, 34, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(221, 86, 34, 0.4)',
+  },
+  scorecardBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 12,
+    backgroundColor: '#34C759',
+  },
+  scorecardBadgeText: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  scorecardTitle: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  scorecardSubtitle: {
+    fontFamily: FontFamilies.sans,
+    color: '#D1D5DB',
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    fontWeight: '400',
+  },
+  recapList: {
+    width: '100%',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 10,
+  },
+  recapHeaderLabel: {
+    fontFamily: FontFamilies.sans,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  recapItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  recapDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  recapTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  recapStageTitle: {
+    fontFamily: FontFamilies.sans,
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  recapChoiceText: {
+    fontFamily: FontFamilies.sans,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  recapBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  recapBadgeText: {
+    fontFamily: FontFamilies.sans,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  restartMainBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.studioOrange,
+    paddingVertical: 13,
+    paddingHorizontal: 26,
+    borderRadius: 16,
+    width: '100%',
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
-  navBtnDisabled: {
-    opacity: 0.4,
-  },
-  navBtnText: {
-    ...Typography.tag,
+  restartMainBtnText: {
+    fontFamily: FontFamilies.sans,
     color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  navStatusText: {
-    ...Typography.tag,
-    color: 'rgba(255, 255, 255, 0.55)',
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
 });

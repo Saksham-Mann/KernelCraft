@@ -1,11 +1,11 @@
-# tracker.md — Development Kanban Checklist
+# tracker.md - Development Kanban Checklist
 
 ## Backlog / Not Started
 - [ ] (Add future track content beyond the launch track here)
 
 ## Phase 1: Asset Prep
 - [x] Shoot/source raw teardown footage
-- [x] Edit footage to 5-chapter narrative cut (10–20s)
+- [x] Edit footage to 5-chapter narrative cut (10-20s)
 - [x] All-Intra encode; verify with `ffprobe` all frames are I-frames
 - [x] Export chip-highlight static still (matches Dive-In handoff moment)
 - [x] Produce OS layer illustrations (Hardware, Kernel, Drivers, Syscall Interface, OS Services, Userspace)
@@ -36,7 +36,7 @@
 - [x] OS Stack: per-layer white content sheets with discrete background color shifts
 - [x] OS Stack: live CPU governor, runqueues, and Binder IPC telemetry visualizers
 - [x] Macrobenchmark & Baseline Profile suite set up on Teardown & Kernel Stack screen (`:baselineprofile`)
-- [x] Perfetto/Layout Inspector profiling pass — fix recomposition storms
+- [x] Perfetto/Layout Inspector profiling pass - fix recomposition storms
 - [ ] Device matrix test: low-tier (memory <250MB peak, <5% dropped frames)
 - [ ] Device matrix test: mid-tier
 - [ ] Device matrix test: high-tier
@@ -44,7 +44,7 @@
 
 ## Phase 4: Interactive Sandbox
 - [x] OS & Kernel Live Telemetry visualizer state machine (`TierInteractiveVisualizer`)
-- [x] Step 0–4 diagrams built (privilege rings, EAS CPU governor, Binder IPC pipe)
+- [x] Step 0-4 diagrams built (privilege rings, EAS CPU governor, Binder IPC pipe)
 - [x] Subsystem inspection modals (Camera Optics ray-tracer & Battery/Vapor Chamber thermal simulator)
 - [x] Procedural low-latency Audio Engine (`TeardownAudioSynthesizer.kt`) with velocity ratchet clicks, whirrs, and silicon hum
 - [ ] Completion flow: Restart / Back to Hub, persist completion to DataStore
