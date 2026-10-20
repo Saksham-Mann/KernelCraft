@@ -13,6 +13,7 @@ import { Colors } from '../theme/colors';
 import { Typography, FontFamilies } from '../theme/typography';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as Device from 'expo-device';
 
 export type NativeSchedulerFamily =
   | 'WINDOWS_NT_BOOST'
@@ -150,121 +151,123 @@ export const MyDeviceInspector: React.FC = () => {
   });
 
   useEffect(() => {
-    const screen = Dimensions.get('screen');
-    const pr = PixelRatio.get();
+    const gatherTelemetry = async () => {
+      const screen = Dimensions.get('screen');
+      const pr = PixelRatio.get();
 
-    let family: 'Windows' | 'Linux' | 'macOS' = 'Windows';
-    let os = 'Windows 11 / 10';
-    let kernel = 'Windows NT 10.0 (Hybrid Kernel)';
-    let arch = 'x86_64 (64-bit)';
-    let cores: number | string = 8;
-    let schedName =
-      'Windows NT Kernel Thread Dispatcher (Priority-Driven Preemptive MLFQ with Dynamic Priority Boosting)';
-    let runtime = 'Chromium Engine (V8)';
-    let familyKey: NativeSchedulerFamily = 'WINDOWS_NT_BOOST';
+      // -----------------------------------------------------------------------
+      // 1. Authoritative platform detection via expo-device + Platform.OS
+      //    These values come directly from the native runtime or the Expo SDK,
+      //    so they are accurate on Android, iOS, and web — no UA parsing needed.
+      // -----------------------------------------------------------------------
+      const platformOS = Platform.OS; // 'android' | 'ios' | 'web'
 
-    // 1. Direct Node / Electron / Native Bridge Inspection
-    const nodeProcess = typeof process !== 'undefined' ? process : null;
-    const nodePlatform = nodeProcess?.platform;
+      // expo-device fields (synchronous properties; wrapped in async function
+      // so callers can extend with async APIs like Device.getDeviceTypeAsync())
+      const deviceOsName: string = Device.osName ?? platformOS;        // e.g. 'Android', 'iOS', 'Windows'
+      const deviceOsVersion: string = Device.osVersion ?? 'Unknown';   // e.g. '14', '17.4'
+      const deviceModelName: string = Device.modelName ?? 'Unknown';   // e.g. 'Pixel 8 Pro'
+      const isDevice: boolean = Device.isDevice;                        // false in simulators / browsers
 
-    // 2. Browser Environment Inspection
-    const isWeb = Platform.OS === 'web' && typeof navigator !== 'undefined';
-    const ua = isWeb ? navigator.userAgent : '';
-    const uaData = isWeb ? (navigator as any).userAgentData : null;
-
-    if (nodePlatform === 'win32' || /Windows NT|Win64|WOW64/i.test(ua) || uaData?.platform === 'Windows') {
-      family = 'Windows';
-      familyKey = 'WINDOWS_NT_BOOST';
-
-      const ntMatch = ua.match(/Windows NT (\d+\.\d+)/i);
-      const ntVersion = ntMatch ? ntMatch[1] : '10.0';
-      if (ntVersion === '10.0') {
-        os = 'Windows 11 / 10';
-        kernel = 'Windows NT 10.0 (Build 22631 / 26200)';
-      } else if (ntVersion === '6.3') {
-        os = 'Windows 8.1';
-        kernel = 'Windows NT 6.3';
-      } else {
-        os = 'Windows NT';
-        kernel = `Windows NT ${ntVersion}`;
+      // Optional: resolve device type (phone / tablet / desktop / TV)
+      // This is the only truly async expo-device call; others are sync properties.
+      let deviceType: Device.DeviceType | null = null;
+      try {
+        deviceType = await Device.getDeviceTypeAsync();
+      } catch {
+        // getDeviceTypeAsync is not supported on web; fall back to null
       }
 
-      arch = /x86_64|Win64|WOW64|x64/i.test(ua) ? 'x86_64 (64-bit)' : 'ARM64';
-      schedName =
-        'Windows NT Kernel Thread Dispatcher (Priority-Driven Preemptive MLFQ with Dynamic Priority Boosting)';
-    } else if (
-      nodePlatform === 'linux' ||
-      Platform.OS === 'android' ||
-      /Android|Linux/i.test(ua) ||
-      uaData?.platform === 'Linux' ||
-      uaData?.platform === 'Android'
-    ) {
-      family = 'Linux';
-      familyKey = 'LINUX_CFS_EEVDF';
+      // -----------------------------------------------------------------------
+      // 2. Map expo-device + Platform.OS → HostTelemetry fields
+      // -----------------------------------------------------------------------
+      let family: 'Windows' | 'Linux' | 'macOS' = 'Windows';
+      let familyKey: NativeSchedulerFamily = 'WINDOWS_NT_BOOST';
+      let os = 'Unknown OS';
+      let kernel = 'Unknown Kernel';
+      let arch = 'Unknown Arch';
+      let schedName = 'Unknown Scheduler';
+      let runtime = 'Unknown Runtime';
+      let cores: number | string = 'N/A';
 
-      if (Platform.OS === 'android' || /Android/i.test(ua)) {
-        const androidMatch = ua.match(/Android (\d+(\.\d+)?)/i);
-        const androidVersion = androidMatch ? androidMatch[1] : '14';
-        os = `Android ${androidVersion} (Linux Kernel)`;
+      if (platformOS === 'android') {
+        // Android — runs on a Linux kernel with EEVDF + EAS scheduling
+        family = 'Linux';
+        familyKey = 'LINUX_CFS_EEVDF';
+        os = `${deviceOsName} ${deviceOsVersion} (Linux Kernel)`;
         kernel = 'Linux Kernel 6.1 / 6.6 (EEVDF Enabled) + EAS';
         arch = 'ARMv9 / ARM64';
         schedName = 'EEVDF (Earliest Eligible Virtual Deadline First) & CFS + EAS';
-      } else {
-        os = 'Linux Distribution (GNU/Linux)';
-        kernel = 'Linux Kernel 6.6+ (EEVDF Default Scheduler)';
-        arch = /arm64|aarch64/i.test(ua) ? 'ARM64' : 'x86_64';
-        schedName = 'EEVDF (Earliest Eligible Virtual Deadline First) & CFS';
-      }
-    } else if (
-      nodePlatform === 'darwin' ||
-      Platform.OS === 'ios' ||
-      /Macintosh|Mac OS X|iPhone|iPad/i.test(ua) ||
-      uaData?.platform === 'macOS'
-    ) {
-      family = 'macOS';
-      familyKey = 'MACOS_MACH_MLFQ';
+        runtime = 'Android Runtime (ART)';
 
-      if (Platform.OS === 'ios' || /iPhone|iPad/i.test(ua)) {
-        os = 'iOS (Darwin Kernel)';
+      } else if (platformOS === 'ios') {
+        // iOS / iPadOS — runs on the Darwin / XNU Mach kernel
+        family = 'macOS';
+        familyKey = 'MACOS_MACH_MLFQ';
+        os = `${deviceOsName} ${deviceOsVersion} (Darwin Kernel)`;
         kernel = 'Darwin / XNU (Mach Kernel 23.x)';
         arch = 'Apple Bionic ARM64';
         schedName = 'Mach Kernel Multilevel Feedback Queue (MLFQ) & GCD';
+        runtime = 'JavaScriptCore (Hermes)';
+
       } else {
-        os = 'macOS (Darwin)';
-        kernel = 'Darwin / XNU (Mach Kernel 23.x)';
-        arch = /x86_64/i.test(ua) ? 'x86_64' : 'Apple Silicon (ARM64)';
-        schedName = 'Mach Kernel Multilevel Feedback Queue (MLFQ) & GCD';
+        // Web — resolve host OS from the Device module where available;
+        // expo-device populates osName on web via the underlying platform APIs.
+        const webOsName = deviceOsName.toLowerCase();
+
+        if (webOsName.includes('windows')) {
+          family = 'Windows';
+          familyKey = 'WINDOWS_NT_BOOST';
+          os = `${deviceOsName} ${deviceOsVersion}`;
+          kernel = `Windows NT 10.0 (Build 22631 / 26200)`;
+          arch = 'x86_64 (64-bit)';
+          schedName = 'Windows NT Kernel Thread Dispatcher (Priority-Driven Preemptive MLFQ with Dynamic Priority Boosting)';
+        } else if (webOsName.includes('mac') || webOsName.includes('darwin')) {
+          family = 'macOS';
+          familyKey = 'MACOS_MACH_MLFQ';
+          os = `macOS ${deviceOsVersion} (Darwin)`;
+          kernel = 'Darwin / XNU (Mach Kernel 23.x)';
+          arch = 'Apple Silicon (ARM64)';
+          schedName = 'Mach Kernel Multilevel Feedback Queue (MLFQ) & GCD';
+        } else {
+          // Linux / ChromeOS / Android-on-web
+          family = 'Linux';
+          familyKey = 'LINUX_CFS_EEVDF';
+          os = `${deviceOsName || 'Linux'} ${deviceOsVersion}`;
+          kernel = 'Linux Kernel 6.6+ (EEVDF Default Scheduler)';
+          arch = 'x86_64';
+          schedName = 'EEVDF (Earliest Eligible Virtual Deadline First) & CFS';
+        }
+
+        // Browser JS engine — read from navigator only on web where it is valid
+        if (typeof navigator !== 'undefined') {
+          cores = navigator.hardwareConcurrency ?? 'N/A';
+          const ua = navigator.userAgent;
+          if (/Edg\//i.test(ua))          runtime = 'Chromium Edge (V8)';
+          else if (/Chrome/i.test(ua))    runtime = 'Chromium Engine (V8)';
+          else if (/Firefox/i.test(ua))   runtime = 'Gecko Engine (SpiderMonkey)';
+          else if (/Safari/i.test(ua))    runtime = 'WebKit Engine (Nitro)';
+          else                            runtime = 'Expo Web Sandbox';
+        }
       }
-    }
 
-    if (isWeb && navigator.hardwareConcurrency) {
-      cores = navigator.hardwareConcurrency;
-    }
+      const screenRes = `${Math.round(screen.width * pr)} x ${Math.round(screen.height * pr)} px`;
 
-    if (isWeb) {
-      if (/Chrome/i.test(ua)) runtime = 'Chromium Engine (V8)';
-      else if (/Safari/i.test(ua)) runtime = 'WebKit Engine (Nitro)';
-      else if (/Firefox/i.test(ua)) runtime = 'Gecko Engine (SpiderMonkey)';
-      else if (/Edge/i.test(ua)) runtime = 'Chromium Edge';
-      else runtime = 'Expo Web Sandbox';
-    } else {
-      runtime = Platform.OS === 'android' ? 'Android Runtime (ART)' : 'Native Darwin XNU';
-    }
+      setTelemetry({
+        osFamily: family,
+        osName: os,
+        kernelVersion: kernel,
+        platformArch: arch,
+        cpuCores: cores,
+        screenResolution: screenRes,
+        pixelRatio: `${pr.toFixed(1)}x`,
+        schedulingAlgorithmName: schedName,
+        runtimeEnvironment: runtime,
+        schedulerFamily: familyKey,
+      });
+    };
 
-    const screenRes = `${Math.round(screen.width * pr)} x ${Math.round(screen.height * pr)} px`;
-
-    setTelemetry({
-      osFamily: family,
-      osName: os,
-      kernelVersion: kernel,
-      platformArch: arch,
-      cpuCores: cores,
-      screenResolution: screenRes,
-      pixelRatio: `${pr.toFixed(1)}x`,
-      schedulingAlgorithmName: schedName,
-      runtimeEnvironment: runtime,
-      schedulerFamily: familyKey,
-    });
+    gatherTelemetry();
   }, []);
 
   // ---------------------------------------------------------------------------
